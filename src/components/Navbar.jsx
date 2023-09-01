@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import /*React,*/ { /*useEffect,*/ useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { tailwindStyles } from '../style'
@@ -21,7 +21,7 @@ const Navbar = () => {
             window.scrollTo(0, 0);
           }}>
             <img src={logo} alt="logo" className='w-9 h-9 object-contain'/>
-            <p className='text-white text-[18px] font-bold cursor-pointer'>
+            <p className='text-white text-[18px] font-bold cursor-pointer flex'>
               Jake D&#39;Amico
             </p>
           </Link>
@@ -46,6 +46,26 @@ const Navbar = () => {
             <img src={toggle ? close : menu} alt="menu" className='w-[28px] h-[28px]
             object-contain cursor-pointer'
             onClick={() => setToggle(!toggle)}/>
+
+            <div className={`${!toggle ? 'hidden' : 'flex'} p-6 black-gradient
+            absolute top-20 right-0 mx-4 my-2 win-w-[140px] z-10 rounded-xl`}>
+              <ul className='list-none flex justify-end items-start flex-col
+              gap-4'>
+              {navLinks.map((link) => (
+                <li key={link.id} 
+                  className={`${
+                    active === link.title
+                    ? "text-white"
+                    : "text-secondary"}
+                  font-poppins font-medium cursor-pointer  text-[16px]`}
+                  onClick={() => {
+                    setToggle(!toggle); 
+                    setActive(link.title);}}>
+                  <a href={`#${link.id}`}>{link.title}</a>
+                </li>
+              ))}
+              </ul>
+            </div>
           </div>
         </div>
 
