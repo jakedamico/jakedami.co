@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Preload, useGLTF } from '@react-three/drei';
 import CanvasLoader from '../Loader'
+import PropTypes from 'prop-types';
 
 const Computers = ({ isMobile }) => {
   const computer = useGLTF('./desktop_pc/scene.gltf')
@@ -25,22 +26,31 @@ const Computers = ({ isMobile }) => {
         />
     </mesh>
   )
-}
+};
+
+Computers.propTypes = {
+  isMobile: PropTypes.bool.isRequired,
+};
 
 const ComputersCanvas = () => {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    //screen size listener
     const mediaQuery = window.matchMedia('(max-width:500px)');
 
+    //set initial value
     setIsMobile(mediaQuery.matches);
 
+    //media query change handler
     const handleMediaQueryChange = (event) => {
       setIsMobile(event.matches);
     }
 
+    //media query change listener
     mediaQuery.addEventListener('change', handleMediaQueryChange);
 
+    //remove listener when component is removed
     return () => {
       mediaQuery.removeEventListener('change', handleMediaQueryChange);
     }
