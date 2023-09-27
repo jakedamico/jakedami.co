@@ -6,7 +6,8 @@ import CanvasLoader from '../Loader'
 import PropTypes from 'prop-types';
 
 const Computers = ({ isMobile }) => {
-  const computer = useGLTF('./desktop_pc/scene.gltf')
+  const computer = useGLTF('./Wizard Tower.glb');
+
   return (
     <mesh>
       {/*Lighting*/}
@@ -17,15 +18,19 @@ const Computers = ({ isMobile }) => {
         angle={0.15} 
         penumbra={1} />
       <pointLight intensity={1} />
-      {/*model*/}
-      <primitive 
-        object={computer.scene}
-        scale={isMobile ? 0.7 : 0.75} 
-        position={isMobile ? [0, -3, -2.2] : [0, -3.25, -1.5]}
-        rotation={[-0.01, -0.2, -0.1]}
+
+      {/* Wrapper mesh/group to change rotation origin */}
+      <group position={[0, 0, 7]}> 
+        {/*model*/}
+        <primitive 
+          object={computer.scene}
+          scale={isMobile ? 0.7 : 1.75} 
+          position={isMobile ? [0, -3, -2.2] : [0, -0.45, -6.5]}
+          rotation={[0, 1.75, 0]}
         />
+      </group>
     </mesh>
-  )
+  );
 };
 
 Computers.propTypes = {
@@ -64,7 +69,10 @@ const ComputersCanvas = () => {
       gl={{ preserveDrawingBuffer: true }}
       >
       <Suspense fallback={<CanvasLoader />}>
-        <OrbitControls 
+        <OrbitControls
+          autoRotate
+          autoRotateSpeed={1}
+          makeDefault 
           enableZoom={false} 
           maxPolarAngle={Math.PI/2}
           minPolarAngle={Math.PI/2}
