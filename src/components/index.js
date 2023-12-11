@@ -7,9 +7,11 @@ import Experience from './Experience';
 import Works from './Works';
 import Contact from './Contact';
 import LandingPage from './LandingPage'
+import Racetrack from './Racetrack';
 
 export {
   LandingPage,
+  Racetrack,
   Hero,
   Navbar,
   About,
