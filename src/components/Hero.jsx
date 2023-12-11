@@ -11,15 +11,15 @@ const Hero = () => {
        flex-row items-start gap-5`}>
         <div className='flex flex-col justify-center items-center mt-5'>
           {/*dot*/}
-          <div className='w-5 h-5 rounded-full bg-[#915eff]'/>
+          <div className='w-5 h-5 rounded-full bg-[#79B4A9]'/>
           {/*line*/}
-          <div className='w-1 sm:h-80 h-40 violet-gradient'/>
+          <div className='w-1 sm:h-80 h-40 teal-gradient'/>
         </div>
 
           {/*text*/}
         <div>
           <h1 className={`${tailwindStyles.heroHeadText}`}>
-            Hi, I&#39;m <span className='text-[#915eff]'>Jake</span>
+            Hi, I&#39;m <span className='text-[#79B4A9]'>Jake</span>
           </h1>
           <p className={`${tailwindStyles.heroSubText} mt-2 text-white-100`}>
             Welcome to my portfolio, I <br className='sm:block hidden' />

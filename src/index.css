@@ -33,12 +33,12 @@
   ); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
 }
 
-.violet-gradient {
-  background: #804dee;
-  background: linear-gradient(-90deg, #804dee 0%, rgba(60, 51, 80, 0) 100%);
+.teal-gradient {
+  background: #79B4A9;
+  background: linear-gradient(-90deg, #79B4A9 0%, rgba(60, 51, 80, 0) 100%);
   background: -webkit-linear-gradient(
     -90deg,
-    #804dee 0%,
+    #79B4A9 0%,
     rgba(60, 51, 80, 0) 100%
   );
 }
@@ -201,4 +201,29 @@
       -1.8em 1.8em 0 0em rgba(255, 255, 255, 0.5),
       -2.6em 0em 0 0em rgba(255, 255, 255, 0.7), -1.8em -1.8em 0 0em #ffffff;
   }
+}
+/*hero bg*/
+body {
+   background-color: #fee440;
+}
+svg {
+   position: fixed;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100vh;
+}
+/*squiggle hover animation*/
+a.squiggle {
+   background: linear-gradient(to bottom, #EE4266 0%, #EE4266 100%);
+   background-position: 0 100%;
+   background-repeat: repeat-x;
+   background-size: 2px 2px;
+   color: inherit;
+   text-decoration: none;
+}
+
+a.animated-squiggle {
+   background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cstyle type='text/css'%3E.squiggle{animation:shift .3s linear infinite;}@keyframes shift {from {transform:translateX(0);}to {transform:translateX(-15px);}}%3C/style%3E%3Cpath fill='none' stroke='%23EE4266' stroke-width='2' class='squiggle' d='M0,3.5 c 5,0,5,-3,10,-3 s 5,3,10,3 c 5,0,5,-3,10,-3 s 5,3,10,3'/%3E%3C/svg%3E");
+   background-size: auto 4px;
 }
