@@ -49,7 +49,7 @@ const ExperienceCard = ({ experience, index }) => {
 const Experience = () => {
   return (
     <>
-      <div className="absolute inset-0 z-10 pointer-events-none">
+      <div className="absolute inset-0 z-10">
         <MatterDisplayTimeline /> {/* Overlaying other content */}
       </div>
       <motion.div variants={textVariant()}>

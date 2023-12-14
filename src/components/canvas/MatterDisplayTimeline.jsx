@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Engine, Render, Bodies, World, Runner, Body } from 'matter-js';
+import { Engine, Render, Bodies, World, Runner,
+         Mouse, MouseConstraint } from 'matter-js';
 
 function MatterDisplayTimeline(props) {
   const scene = useRef();
@@ -44,8 +45,19 @@ function MatterDisplayTimeline(props) {
         background: 'transparent'
       }
     });
+   // Create a mouse
+   const mouse = Mouse.create(render.canvas);
 
-    World.add(engine.current.world, []);
+   // Create a MouseConstraint
+   const mouseConstraint = MouseConstraint.create(engine.current, {
+      mouse: mouse,
+      constraint: {
+         render: { visible: false }
+      }
+   });
+    World.add(engine.current.world, mouseConstraint);
+   // Keep the mouse in sync with rendering
+   render.mouse = mouse;
 
     const ballCreationInterval = setInterval(() => {
       const maxRadius = 40; // Maximum possible radius for a ball
@@ -143,7 +155,6 @@ function MatterDisplayTimeline(props) {
       style={{ width: '100%', height: '100%' }}
     >
       <div ref={scene} style={{ width: '100%', height: '100%' }} />
-         <button onClick={createBodiesForDivs}>Create Bodies</button>
     </div>
   );
 }
