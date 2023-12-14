@@ -20,7 +20,7 @@ return (
             setActive("");
             window.scrollTo(0, 0);
          }}>
-            <img src={JDLogoWhite} alt="loJDLogoNoBGBlackgo" className='w-9 h-9 object-contain'/>
+            <img src={JDLogoWhite} alt="JDLogoWhite" className='w-9 h-9 object-contain'/>
             <p className='text-white text-[18px] font-bold cursor-pointer flex'>
             Jake D&#39;Amico
             </p>
