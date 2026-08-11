@@ -124,13 +124,15 @@ function createNoise3D(random = Math.random) {
   };
 }
 
-// Field tuning — the war-room backdrop defaults, baked.
+// Field tuning — war-room backdrop base, re-tuned lava-lamp: bigger blobs
+// (noiseScale down), slower drift (noiseTimeScale down), fuller coverage
+// (visibilityThreshold down) so the field reads as thick slow masses.
 const config = {
   cellSize: 12,
   mobileCellSize: 16,
   mobileBreakpoint: 720,
-  noiseScale: 0.045,
-  noiseTimeScale: 0.00035,
+  noiseScale: 0.021,
+  noiseTimeScale: 0.00012,
   ramp: ' .,:;+*o#',
   cursorBgRadius: 180,
   rippleSpeed: 280,
@@ -140,7 +142,7 @@ const config = {
   bgFont: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
   brightnessFloor: 60,
   brightnessCeil: 158,
-  visibilityThreshold: 0.22,
+  visibilityThreshold: 0.17,
 };
 
 const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
