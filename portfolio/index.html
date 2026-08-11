@@ -3,23 +3,413 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jake D'Amico</title>
+  <title>jakedami.co</title>
+  <meta name="description" content="building stuff.">
   <style>
-    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
-      margin: 0; min-height: 100vh; display: grid; place-items: center;
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f1115; color: #e8eaf0;
+      margin: 0; background: #000; color: #c8c8c8; overflow: hidden;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     }
-    main { text-align: center; padding: 2rem; }
-    h1 { font-size: 1.6rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 .5rem; }
-    p { color: #8a90a0; margin: 0; }
+    canvas#field {
+      position: fixed; inset: 0; width: 100vw; height: 100vh;
+      z-index: 0; pointer-events: none; display: block;
+    }
+    main {
+      position: relative; z-index: 1; height: 100vh;
+      display: grid; place-items: center; text-align: center;
+    }
+    h1 {
+      font-size: 1.05rem; font-weight: 400; letter-spacing: .06em;
+      margin: 0 0 1.4rem; user-select: none;
+    }
+    h1::after {
+      content: "_"; margin-left: 2px;
+      animation: blink 1.1s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    nav { display: flex; gap: 1.6rem; justify-content: center; }
+    nav a {
+      color: #5f5f5f; text-decoration: none; font-size: .8rem;
+      letter-spacing: .08em; transition: color .25s ease;
+    }
+    nav a:hover { color: #b4b4b4; }
   </style>
 </head>
 <body>
+  <canvas id="field" aria-hidden="true"></canvas>
   <main>
-    <h1>Jake D'Amico</h1>
-    <p>Software &amp; brands. Site coming soon.</p>
+    <div>
+      <h1>building stuff</h1>
+      <nav>
+        <a href="https://www.linkedin.com/in/jacobdamico/" target="_blank" rel="noopener">linkedin</a>
+        <a href="https://www.instagram.com/jaked.amico/" target="_blank" rel="noopener">instagram</a>
+      </nav>
+    </div>
   </main>
+
+<script>
+// ── ASCII field — ported verbatim from the war-room backdrop engine ────────
+// (AsciiRenderer + Input + BackgroundField, config baked to the defaults;
+// simplex-noise's createNoise3D inlined below.)
+
+// 3D simplex noise (Stefan Gustavson's algorithm, compact port).
+function createNoise3D(random = Math.random) {
+  const F3 = 1 / 3, G3 = 1 / 6;
+  const grad3 = new Float32Array([
+    1,1,0, -1,1,0, 1,-1,0, -1,-1,0,
+    1,0,1, -1,0,1, 1,0,-1, -1,0,-1,
+    0,1,1, 0,-1,1, 0,1,-1, 0,-1,-1,
+  ]);
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = (random() * (i + 1)) | 0;
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint8Array(512), permMod12 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++) { perm[i] = p[i & 255]; permMod12[i] = perm[i] % 12; }
+
+  return function noise3D(xin, yin, zin) {
+    let n0, n1, n2, n3;
+    const s = (xin + yin + zin) * F3;
+    const i = Math.floor(xin + s), j = Math.floor(yin + s), k = Math.floor(zin + s);
+    const t = (i + j + k) * G3;
+    const x0 = xin - (i - t), y0 = yin - (j - t), z0 = zin - (k - t);
+    let i1, j1, k1, i2, j2, k2;
+    if (x0 >= y0) {
+      if (y0 >= z0)      { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+      else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+      else               { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+    } else {
+      if (y0 < z0)       { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+      else if (x0 < z0)  { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+      else               { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+    }
+    const x1 = x0 - i1 + G3,     y1 = y0 - j1 + G3,     z1 = z0 - k1 + G3;
+    const x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3;
+    const x3 = x0 - 1 + 3 * G3,  y3 = y0 - 1 + 3 * G3,  z3 = z0 - 1 + 3 * G3;
+    const ii = i & 255, jj = j & 255, kk = k & 255;
+
+    let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+    if (t0 < 0) n0 = 0;
+    else {
+      const g = permMod12[ii + perm[jj + perm[kk]]] * 3;
+      t0 *= t0;
+      n0 = t0 * t0 * (grad3[g] * x0 + grad3[g + 1] * y0 + grad3[g + 2] * z0);
+    }
+    let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+    if (t1 < 0) n1 = 0;
+    else {
+      const g = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]] * 3;
+      t1 *= t1;
+      n1 = t1 * t1 * (grad3[g] * x1 + grad3[g + 1] * y1 + grad3[g + 2] * z1);
+    }
+    let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+    if (t2 < 0) n2 = 0;
+    else {
+      const g = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]] * 3;
+      t2 *= t2;
+      n2 = t2 * t2 * (grad3[g] * x2 + grad3[g + 1] * y2 + grad3[g + 2] * z2);
+    }
+    let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+    if (t3 < 0) n3 = 0;
+    else {
+      const g = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]] * 3;
+      t3 *= t3;
+      n3 = t3 * t3 * (grad3[g] * x3 + grad3[g + 1] * y3 + grad3[g + 2] * z3);
+    }
+    return 32 * (n0 + n1 + n2 + n3);
+  };
+}
+
+// Field tuning — the war-room backdrop defaults, baked.
+const config = {
+  cellSize: 12,
+  mobileCellSize: 16,
+  mobileBreakpoint: 720,
+  noiseScale: 0.045,
+  noiseTimeScale: 0.00035,
+  ramp: ' .,:;+*o#',
+  cursorBgRadius: 180,
+  rippleSpeed: 280,
+  rippleDecay: 0.945,
+  rippleBand: 34,
+  swipeMinSpeed: 1.6,
+  bgFont: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  brightnessFloor: 60,
+  brightnessCeil: 158,
+  visibilityThreshold: 0.22,
+};
+
+const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
+const DISTURB_DECAY = 0.9;
+const SCRAMBLE_MS = 90;
+const SCRAMBLE_RADIUS = 70;
+const SCRAMBLE_MAX_P = 0.35;
+
+class AsciiRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.noise = createNoise3D();
+    this.t = 0;
+    this.clock = 0;
+    this.ripples = [];
+    this.disturbance = 0;
+    this.scrambled = [];
+    this.resize();
+  }
+
+  resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.viewport = { width: w, height: h, dpr };
+    this.canvas.width = Math.floor(w * dpr);
+    this.canvas.height = Math.floor(h * dpr);
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const isMobile = w < config.mobileBreakpoint;
+    this.cell = isMobile ? config.mobileCellSize : config.cellSize;
+    this.cols = Math.ceil(w / this.cell) + 1;
+    this.rows = Math.ceil(h / this.cell) + 1;
+    this.ctx.font = `${this.cell - 2}px ${config.bgFont}`;
+    this.ctx.textBaseline = 'middle';
+    this.ctx.textAlign = 'center';
+
+    this.buckets = new Array(config.ramp.length);
+    for (let i = 0; i < this.buckets.length; i++) this.buckets[i] = [];
+  }
+
+  addRipple(x, y) {
+    this.ripples.push({ x, y, t: 0, alpha: 1 });
+  }
+
+  kick(amount = 1) {
+    this.disturbance = Math.max(this.disturbance, amount);
+  }
+
+  render(dt, cursor) {
+    const ctx = this.ctx;
+    const { width, height } = this.viewport;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    this.t += dt * config.noiseTimeScale * (1 + this.disturbance * 1.4);
+    this.clock += dt;
+    const scrambleTick = (this.clock / SCRAMBLE_MS) | 0;
+    const breath = Math.sin(this.t * 0.18) * 0.05;
+
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      r.t += dt / 1000;
+      r.alpha *= Math.pow(config.rippleDecay, dt / 16);
+      if (r.alpha < 0.025) this.ripples.splice(i, 1);
+    }
+
+    const ramp = config.ramp;
+    const rampMax = ramp.length - 1;
+    const cell = this.cell;
+    const ns = config.noiseScale;
+    const cursorActive = cursor.active;
+    const cursorR = config.cursorBgRadius;
+    const cursorR2 = cursorR * cursorR;
+    const rippleSpeed = config.rippleSpeed;
+    const rippleBand = config.rippleBand;
+    const minN = config.visibilityThreshold;
+
+    const buckets = this.buckets;
+    for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+    const scrambled = this.scrambled;
+    scrambled.length = 0;
+
+    const rows = this.rows;
+    const cols = this.cols;
+    for (let j = 0; j < rows; j++) {
+      const y = j * cell;
+      for (let i = 0; i < cols; i++) {
+        const x = i * cell;
+        let n = this.noise(i * ns, j * ns, this.t) * 0.5 + 0.5;
+
+        let scrambleH = 0;
+        if (cursorActive) {
+          const dx = x - cursor.x;
+          const dy = y - cursor.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < cursorR2) {
+            const k = 1 - Math.sqrt(d2) / cursorR;
+            n += k * k * 0.45;
+          }
+          if (d2 < SCRAMBLE_RADIUS * SCRAMBLE_RADIUS) {
+            const sk = 1 - Math.sqrt(d2) / SCRAMBLE_RADIUS;
+            let h = ((i * 73856093) ^ (j * 19349663) ^ (scrambleTick * 83492791)) >>> 0;
+            h = (h ^ (h >>> 13)) >>> 0;
+            if (h % 1024 < sk * sk * SCRAMBLE_MAX_P * 1024) scrambleH = h || 1;
+          }
+        }
+
+        for (let k = 0; k < this.ripples.length; k++) {
+          const r = this.ripples[k];
+          const dx = x - r.x;
+          const dy = y - r.y;
+          const d = Math.hypot(dx, dy);
+          const ring = Math.abs(d - r.t * rippleSpeed);
+          if (ring < rippleBand) {
+            n += (1 - ring / rippleBand) * r.alpha * 0.55;
+          }
+        }
+
+        n += this.disturbance * 0.08 + breath;
+
+        if (n < minN) continue;
+        if (n > 1) n = 1;
+        const idx = Math.min(rampMax, Math.max(1, (n * (rampMax + 1)) | 0));
+        if (scrambleH) {
+          scrambled.push(x, y, scrambleH, idx);
+          continue;
+        }
+        buckets[idx].push(x, y);
+      }
+    }
+
+    const floor = config.brightnessFloor;
+    const range = config.brightnessCeil - floor;
+    for (let i = 1; i < buckets.length; i++) {
+      const arr = buckets[i];
+      if (!arr.length) continue;
+      const t = i / rampMax;
+      const gray = Math.floor(floor + t * range);
+      ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
+      const ch = ramp[i];
+      for (let k = 0; k < arr.length; k += 2) {
+        ctx.fillText(ch, arr[k], arr[k + 1]);
+      }
+    }
+
+    for (let k = 0; k < scrambled.length; k += 4) {
+      const gray = Math.floor(floor + (scrambled[k + 3] / rampMax) * range);
+      ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
+      const ch = SCRAMBLE_CHARS[(scrambled[k + 2] >>> 10) % SCRAMBLE_CHARS.length];
+      ctx.fillText(ch, scrambled[k], scrambled[k + 1]);
+    }
+
+    if (this.disturbance > 0.001) this.disturbance *= Math.pow(DISTURB_DECAY, dt / 16);
+    else this.disturbance = 0;
+  }
+}
+
+class Input {
+  constructor() {
+    this.cursor = { x: -9999, y: -9999, vx: 0, vy: 0, active: false, lastT: 0 };
+    this.listeners = { impulse: [], ripple: [] };
+    this.dragging = false;
+    this.pointerDownAt = 0;
+    this.pointerDownPos = { x: 0, y: 0 };
+
+    this._onMove = (e) => this.updateCursor(e.clientX, e.clientY);
+    this._onDown = (e) => {
+      this.updateCursor(e.clientX, e.clientY);
+      this.dragging = true;
+      this.pointerDownAt = performance.now();
+      this.pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+    this._onUp = (e) => {
+      if (!this.dragging) return;
+      const dt = performance.now() - this.pointerDownAt;
+      const drift = Math.hypot(e.clientX - this.pointerDownPos.x, e.clientY - this.pointerDownPos.y);
+      if (dt < 260 && drift < 8) this.emit('ripple', { x: e.clientX, y: e.clientY });
+      else this.maybeImpulse();
+      this.dragging = false;
+    };
+    this._onTouchStart = (e) => {
+      if (!e.touches[0]) return;
+      const t = e.touches[0];
+      Object.assign(this.cursor, { x: t.clientX, y: t.clientY, vx: 0, vy: 0, lastT: performance.now(), active: true });
+      this.dragging = true;
+      this.pointerDownAt = performance.now();
+      this.pointerDownPos = { x: t.clientX, y: t.clientY };
+    };
+    this._onTouchMove = (e) => {
+      if (e.touches[0]) this.updateCursor(e.touches[0].clientX, e.touches[0].clientY);
+    };
+    this._onTouchEnd = () => {
+      const dt = performance.now() - this.pointerDownAt;
+      const drift = Math.hypot(this.cursor.x - this.pointerDownPos.x, this.cursor.y - this.pointerDownPos.y);
+      if (dt < 260 && drift < 10) this.emit('ripple', { x: this.cursor.x, y: this.cursor.y });
+      else this.maybeImpulse();
+      this.dragging = false;
+    };
+
+    window.addEventListener('mousemove', this._onMove);
+    window.addEventListener('mousedown', this._onDown);
+    window.addEventListener('mouseup', this._onUp);
+    window.addEventListener('touchstart', this._onTouchStart, { passive: true });
+    window.addEventListener('touchmove', this._onTouchMove, { passive: true });
+    window.addEventListener('touchend', this._onTouchEnd);
+    window.addEventListener('touchcancel', this._onTouchEnd);
+  }
+
+  on(name, fn) { this.listeners[name].push(fn); }
+  emit(name, payload) { for (const fn of this.listeners[name]) fn(payload); }
+
+  updateCursor(x, y) {
+    const now = performance.now();
+    const last = this.cursor.lastT || now;
+    const dt = Math.max(8, now - last);
+    const smooth = 0.55;
+    const nvx = ((x - this.cursor.x) / dt) * 16;
+    const nvy = ((y - this.cursor.y) / dt) * 16;
+    this.cursor.vx = this.cursor.vx * (1 - smooth) + nvx * smooth;
+    this.cursor.vy = this.cursor.vy * (1 - smooth) + nvy * smooth;
+    this.cursor.x = x;
+    this.cursor.y = y;
+    this.cursor.lastT = now;
+    this.cursor.active = true;
+  }
+
+  maybeImpulse() {
+    if (Math.hypot(this.cursor.vx, this.cursor.vy) < config.swipeMinSpeed) return;
+    this.emit('impulse', { x: this.cursor.x, y: this.cursor.y });
+  }
+}
+
+// Lifecycle — BackgroundField, inlined.
+const canvas = document.getElementById('field');
+const bg = new AsciiRenderer(canvas);
+const input = new Input();
+input.on('ripple', (p) => bg.addRipple(p.x, p.y));
+input.on('impulse', (p) => bg.addRipple(p.x, p.y));
+
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => bg.resize(), 120);
+});
+window.addEventListener('orientationchange', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => bg.resize(), 120);
+});
+
+let lastT = performance.now();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) lastT = performance.now();
+});
+
+// A quiet greeting: one kick so the field scrambles-then-settles on load.
+bg.kick(0.6);
+
+function loop(now) {
+  const dt = Math.min(40, now - lastT);
+  lastT = now;
+  bg.render(dt, input.cursor);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
