@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
-  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><text x="32" y="36" font-family="monospace" font-size="42" fill="%23c8c8c8" text-anchor="middle" dominant-baseline="central">%23</text></svg>'>
+  <!-- Favicon: the # drawn as strokes, not text — a font glyph leaves its own
+       side bearings and sits on a baseline, so it renders small and low. These
+       four lines are symmetric about (32,32) and span 6–58 of the 64 box. -->
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><g stroke="%23c8c8c8" stroke-width="7"><path d="M25 6 L19 58"/><path d="M45 6 L39 58"/><path d="M6 23 L58 23"/><path d="M6 41 L58 41"/></g></svg>'>
   <style>
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -126,8 +129,9 @@ function createNoise3D(random = Math.random) {
 }
 
 // Field tuning — war-room backdrop base, re-tuned lava-lamp: bigger blobs
-// (noiseScale down), slower drift (noiseTimeScale down), fuller coverage
-// (visibilityThreshold down) so the field reads as thick slow masses.
+// (noiseScale down), slower drift (noiseTimeScale down). visibilityThreshold
+// is the black-space knob: cells below it draw nothing, so raising it carves
+// the carpet into slow masses floating in void. Raise for more black.
 const config = {
   cellSize: 12,
   mobileCellSize: 16,
@@ -143,7 +147,7 @@ const config = {
   bgFont: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
   brightnessFloor: 60,
   brightnessCeil: 158,
-  visibilityThreshold: 0.17,
+  visibilityThreshold: 0.5,
 };
 
 const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
@@ -232,6 +236,7 @@ class AsciiRenderer {
     const rippleSpeed = config.rippleSpeed;
     const rippleBand = config.rippleBand;
     const minN = config.visibilityThreshold;
+    const invSpan = 1 / (1 - minN);
 
     const buckets = this.buckets;
     for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
@@ -295,7 +300,11 @@ class AsciiRenderer {
 
         if (n < minN) continue;
         if (n > 1) n = 1;
-        const idx = Math.min(rampMax, Math.max(1, (n * (rampMax + 1)) | 0));
+        // Restretch what survives the cut across the whole ramp, so a mass
+        // still fades ' .,:' at its rim instead of starting mid-ramp and
+        // ending in a hard edge against the black.
+        const nn = (n - minN) * invSpan;
+        const idx = Math.min(rampMax, Math.max(1, (nn * (rampMax + 1)) | 0));
         if (scrambleH) {
           scrambled.push(x, y, scrambleH, idx);
           continue;
