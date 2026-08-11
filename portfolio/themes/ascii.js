@@ -1,6 +1,10 @@
-// ── ASCII field theme — ported verbatim from the war-room backdrop engine ──
+// ── ASCII field theme — ported from the war-room backdrop engine ───────────
 // (AsciiRenderer + Input + BackgroundField, config baked to the defaults;
 // simplex-noise's createNoise3D inlined below.)
+//
+// The base noise is domain-warped: each sample point first drifts on two
+// companion noise fields before the real lookup, so the masses read as smoke
+// pulled by currents rather than round blobs.
 (function () {
   window.__themes = window.__themes || {};
 
@@ -80,10 +84,19 @@
   // the carpet into slow masses floating in void. Raise for more black.
   const config = {
     cellSize: 12,
-    mobileCellSize: 16,
+    mobileCellSize: 13,
     mobileBreakpoint: 720,
     noiseScale: 0.021,
+    // Phones: noiseScale is per-CELL, and a phone fits far fewer cells — at
+    // the desktop scale one mass outspans the whole screen ("zoomed in").
+    // Higher scale = smaller features, so masses fit the small screen.
+    mobileNoiseScale: 0.045,
     noiseTimeScale: 0.00012,
+    // Domain warp. warpAmp = how hard the currents pull (higher = wispier,
+    // thinner filaments; lower = closer to round blobs). warpBias = flat
+    // energy added to give the warped, thinned field its body back.
+    warpAmp: 1.25,
+    warpBias: 0.05,
     ramp: ' .,:;+*o#',
     cursorBgRadius: 180,
     rippleSpeed: 280,
@@ -105,7 +118,11 @@
   class AsciiRenderer {
     constructor(canvas) {
       this.canvas = canvas;
-      this.ctx = canvas.getContext('2d', { alpha: false });
+      // alpha:true on purpose: an opaque canvas lets Chrome use LCD subpixel
+      // antialiasing on fillText, which tints dense glyph fields orange/blue.
+      // A transparent backing store forces grayscale AA. We still paint our
+      // own black every frame, so nothing else changes.
+      this.ctx = canvas.getContext('2d', { alpha: true });
       this.noise = createNoise3D();
       this.t = 0;
       this.clock = 0;
@@ -134,6 +151,7 @@
 
       const isMobile = w < config.mobileBreakpoint;
       this.cell = isMobile ? config.mobileCellSize : config.cellSize;
+      this.noiseScaleEff = isMobile ? config.mobileNoiseScale : config.noiseScale;
       this.cols = Math.ceil(w / this.cell) + 1;
       this.rows = Math.ceil(h / this.cell) + 1;
       this.ctx.font = `${this.cell - 2}px ${config.bgFont}`;
@@ -175,7 +193,7 @@
       const ramp = config.ramp;
       const rampMax = ramp.length - 1;
       const cell = this.cell;
-      const ns = config.noiseScale;
+      const ns = this.noiseScaleEff;
       const cursorActive = cursor.active;
       const cursorR = config.cursorBgRadius;
       const cursorR2 = cursorR * cursorR;
@@ -183,6 +201,8 @@
       const rippleBand = config.rippleBand;
       const minN = config.visibilityThreshold;
       const invSpan = 1 / (1 - minN);
+      const warpAmp = config.warpAmp;
+      const warpBias = config.warpBias;
 
       const buckets = this.buckets;
       for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
@@ -195,7 +215,11 @@
         const y = j * cell;
         for (let i = 0; i < cols; i++) {
           const x = i * cell;
-          let n = this.noise(i * ns, j * ns, this.t) * 0.5 + 0.5;
+          // Domain warp: the sample point drifts on two companion noise
+          // fields before the real lookup — blobs become smoke.
+          const wx = this.noise(i * ns + 13.7, j * ns + 7.3, this.t);
+          const wy = this.noise(i * ns - 9.2, j * ns + 3.1, this.t);
+          let n = this.noise(i * ns + warpAmp * wx, j * ns + warpAmp * wy, this.t) * 0.5 + 0.5 + warpBias;
 
           let scrambleH = 0;
           if (cursorActive) {
