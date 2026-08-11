@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><text x="32" y="36" font-family="monospace" font-size="42" fill="%23c8c8c8" text-anchor="middle" dominant-baseline="central">%23</text></svg>'>
   <style>
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -40,7 +41,7 @@
 <body>
   <canvas id="field" aria-hidden="true"></canvas>
   <main>
-    <div>
+    <div id="content">
       <h1>building stuff</h1>
       <nav>
         <a href="https://www.linkedin.com/in/jacobdamico/" target="_blank" rel="noopener">linkedin</a>
@@ -161,7 +162,13 @@ class AsciiRenderer {
     this.ripples = [];
     this.disturbance = 0;
     this.scrambled = [];
+    this.zone = null; // soft void the field parts around (the text block)
     this.resize();
+  }
+
+  // Rect (+padding) the field flows around. fade = falloff width in px.
+  setZone(cx, cy, hw, hh, fade = 96) {
+    this.zone = { cx, cy, hw, hh, fade };
   }
 
   resize() {
@@ -206,6 +213,7 @@ class AsciiRenderer {
     this.clock += dt;
     const scrambleTick = (this.clock / SCRAMBLE_MS) | 0;
     const breath = Math.sin(this.t * 0.18) * 0.05;
+    const zoneBreath = Math.sin(this.clock * 0.0006) * 4;
 
     for (let i = this.ripples.length - 1; i >= 0; i--) {
       const r = this.ripples[i];
@@ -255,6 +263,25 @@ class AsciiRenderer {
           }
         }
 
+        n += this.disturbance * 0.08 + breath;
+
+        // The field parts around the text: full suppression inside the
+        // zone's core, smooth quadratic falloff at its edge. The void
+        // breathes a few px with the field so it reads as alive, and
+        // ripples still wash partway through rather than dying at it.
+        let wash = 1;
+        if (this.zone) {
+          const z = this.zone;
+          const zdx = Math.max(0, Math.abs(x - z.cx) - (z.hw + zoneBreath));
+          const zdy = Math.max(0, Math.abs(y - z.cy) - (z.hh + zoneBreath));
+          const zd = Math.hypot(zdx, zdy);
+          if (zd < z.fade) {
+            const kf = 1 - zd / z.fade;
+            n *= 1 - kf * kf;
+            wash = 1 - kf * 0.55;
+          }
+        }
+
         for (let k = 0; k < this.ripples.length; k++) {
           const r = this.ripples[k];
           const dx = x - r.x;
@@ -262,11 +289,9 @@ class AsciiRenderer {
           const d = Math.hypot(dx, dy);
           const ring = Math.abs(d - r.t * rippleSpeed);
           if (ring < rippleBand) {
-            n += (1 - ring / rippleBand) * r.alpha * 0.55;
+            n += (1 - ring / rippleBand) * r.alpha * 0.55 * wash;
           }
         }
-
-        n += this.disturbance * 0.08 + breath;
 
         if (n < minN) continue;
         if (n > 1) n = 1;
@@ -387,15 +412,28 @@ const input = new Input();
 input.on('ripple', (p) => bg.addRipple(p.x, p.y));
 input.on('impulse', (p) => bg.addRipple(p.x, p.y));
 
+// Tell the renderer where the text block sits so the field parts around it.
+const content = document.getElementById('content');
+function measureZone() {
+  const r = content.getBoundingClientRect();
+  bg.setZone(
+    r.left + r.width / 2,
+    r.top + r.height / 2,
+    r.width / 2 + 30,
+    r.height / 2 + 22
+  );
+}
+measureZone();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureZone);
+window.addEventListener('load', measureZone);
+
 let resizeTimer = 0;
-window.addEventListener('resize', () => {
+const onResize = () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => bg.resize(), 120);
-});
-window.addEventListener('orientationchange', () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => bg.resize(), 120);
-});
+  resizeTimer = setTimeout(() => { bg.resize(); measureZone(); }, 120);
+};
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
 
 let lastT = performance.now();
 document.addEventListener('visibilitychange', () => {
