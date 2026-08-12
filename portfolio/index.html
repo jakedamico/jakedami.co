@@ -67,6 +67,14 @@
     @supports (height: 100lvh) {
       canvas.bg-canvas { height: 100lvh; }
     }
+    /* iOS Safari 26 refuses to composite position:fixed content behind its
+       floating liquid-glass controls (it gets cut off) — absolute content
+       renders edge-to-edge fine. Scoped to iOS via -webkit-touch-callout.
+       No scroll appears: body's overflow:hidden propagates to the viewport,
+       and with viewport-fit=cover the clip box is the full physical screen. */
+    @supports (-webkit-touch-callout: none) {
+      canvas.bg-canvas { position: absolute; }
+    }
     main {
       position: relative; z-index: 1; height: 100vh;
       display: grid; place-items: center; text-align: center;
