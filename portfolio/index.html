@@ -5,11 +5,9 @@
   <!-- viewport-fit=cover: let the page extend into the iOS safe areas
        (status bar, home indicator) instead of stopping at them. -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <!-- iOS Safari never lets a page draw under its own chrome (status bar /
-       URL bar); "edge-to-edge" there is color blending: Safari tints those
-       regions from theme-color + the page background. The theme script
-       below retints this to match the active theme. -->
-  <meta name="theme-color" content="#000000">
+  <!-- Deliberately NO theme-color meta: on iOS 26 an explicit theme-color
+       makes Safari tint its chrome as a SOLID color, replacing the
+       translucent blur-of-content that makes pages read edge-to-edge. -->
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
   <!-- Favicon: the # drawn as strokes, not text — a font glyph leaves its own
@@ -36,8 +34,6 @@
     var t = VALID[q] ? q : VALID[saved] ? saved : 'ascii';
     if (VALID[q]) { try { localStorage.setItem('theme', q); } catch (e) {} }
     document.documentElement.dataset.theme = t;
-    var mc = document.querySelector('meta[name="theme-color"]');
-    if (mc) mc.setAttribute('content', t === 'ascii' ? '#000000' : '#f2efe9');
   })();
   </script>
   <style>

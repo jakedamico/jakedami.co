@@ -111,16 +111,19 @@
 
   // iOS Safari: window.innerHeight is the SMALL viewport (URL bar visible),
   // so a canvas sized from it stops short of the status bar / URL bar areas.
-  // Measure 100lvh (large viewport) with a probe; with viewport-fit=cover in
-  // the shell, that spans the screen end to end. Falls back to innerHeight
-  // where lvh is unsupported.
+  // Measure 100lvh (large viewport) with a probe — and on iOS stretch all
+  // the way to the PHYSICAL screen height (screen.height), because even the
+  // large viewport excludes some of the liquid-glass chrome. Extra height is
+  // harmless: the canvas is anchored at the top and never scrolls.
   function largeViewportHeight() {
     const el = document.createElement('div');
     el.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
     document.body.appendChild(el);
     const h = el.offsetHeight;
     el.remove();
-    return Math.max(window.innerHeight, h || 0);
+    const ios = window.CSS && CSS.supports && CSS.supports('-webkit-touch-callout', 'none');
+    const screenH = ios && window.screen ? window.screen.height || 0 : 0;
+    return Math.max(window.innerHeight, h || 0, screenH);
   }
 
   const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
