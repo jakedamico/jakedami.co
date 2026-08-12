@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover: let the page extend into the iOS safe areas
+       (status bar, home indicator) instead of stopping at them. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
   <!-- Favicon: the # drawn as strokes, not text — a font glyph leaves its own
@@ -49,6 +51,11 @@
     canvas.bg-canvas {
       position: fixed; inset: 0; width: 100vw; height: 100vh;
       z-index: 0; pointer-events: none; display: block;
+    }
+    /* iOS: size to the LARGE viewport so the canvas runs behind the
+       collapsible URL bar instead of stopping above it. */
+    @supports (height: 100lvh) {
+      canvas.bg-canvas { height: 100lvh; }
     }
     main {
       position: relative; z-index: 1; height: 100vh;

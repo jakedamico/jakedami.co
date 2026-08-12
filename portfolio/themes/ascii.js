@@ -109,6 +109,20 @@
     visibilityThreshold: 0.5,
   };
 
+  // iOS Safari: window.innerHeight is the SMALL viewport (URL bar visible),
+  // so a canvas sized from it stops short of the status bar / URL bar areas.
+  // Measure 100lvh (large viewport) with a probe; with viewport-fit=cover in
+  // the shell, that spans the screen end to end. Falls back to innerHeight
+  // where lvh is unsupported.
+  function largeViewportHeight() {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
+    document.body.appendChild(el);
+    const h = el.offsetHeight;
+    el.remove();
+    return Math.max(window.innerHeight, h || 0);
+  }
+
   const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
   const DISTURB_DECAY = 0.9;
   const SCRAMBLE_MS = 90;
@@ -141,7 +155,7 @@
     resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = window.innerWidth;
-      const h = window.innerHeight;
+      const h = largeViewportHeight();
       this.viewport = { width: w, height: h, dpr };
       this.canvas.width = Math.floor(w * dpr);
       this.canvas.height = Math.floor(h * dpr);
