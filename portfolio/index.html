@@ -53,6 +53,9 @@
     body {
       margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      /* No double-tap-to-zoom (it visibly shifts the locked page on iOS);
+         plain taps and clicks are unaffected. */
+      touch-action: manipulation;
     }
     canvas.bg-canvas {
       position: fixed; inset: 0; width: 100vw; height: 100vh;
