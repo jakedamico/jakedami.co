@@ -437,6 +437,14 @@
       if (IS_IOS) {
         const park = () => window.scrollTo(0, IOS_RUNWAY);
         park();
+        // Kill the scroll GESTURE, not the scroll ability: preventDefault on
+        // touchmove means the parked offset can never be disturbed — the page
+        // feels completely static, yet Safari keeps compositing the scrolled-
+        // past field pixels behind the status bar. Taps, the ripple, and link
+        // clicks are untouched (only panning is eaten).
+        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+        // Safety net: if anything programmatic nudges the offset (rotation,
+        // Safari internals), glide it back.
         let parkTimer = 0;
         window.addEventListener('scroll', () => {
           clearTimeout(parkTimer);
@@ -445,6 +453,7 @@
           }, 90);
         }, { passive: true });
         window.addEventListener('load', park);
+        window.addEventListener('orientationchange', () => setTimeout(park, 200));
       }
 
       measureZone();
