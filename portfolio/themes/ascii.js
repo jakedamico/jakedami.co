@@ -109,25 +109,21 @@
     visibilityThreshold: 0.5,
   };
 
-  // iOS WebKit detection — mirrors the @supports (-webkit-touch-callout)
-  // scope in the shell CSS.
-  const IS_IOS = !!(window.CSS && CSS.supports && CSS.supports('-webkit-touch-callout', 'none'));
-  // Must match --runway in the shell CSS: the invisible scroll offset that
-  // puts real field pixels behind the iOS status bar.
-  const IOS_RUNWAY = 80;
-
   // iOS Safari: window.innerHeight is the SMALL viewport (URL bar visible),
-  // so a canvas sized from it stops short of the chrome. On iOS, size to the
-  // PHYSICAL screen plus the scroll runway; elsewhere, to max(innerHeight,
-  // 100lvh via probe). Extra height is harmless — anchored at the top.
-  function canvasHeight() {
+  // so a canvas sized from it stops short of the status bar / URL bar areas.
+  // Measure 100lvh (large viewport) with a probe — and on iOS stretch all
+  // the way to the PHYSICAL screen height (screen.height), because even the
+  // large viewport excludes some of the liquid-glass chrome. Extra height is
+  // harmless: the canvas is anchored at the top and never scrolls.
+  function largeViewportHeight() {
     const el = document.createElement('div');
     el.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
     document.body.appendChild(el);
-    const lvh = el.offsetHeight;
+    const h = el.offsetHeight;
     el.remove();
-    const screenH = IS_IOS && window.screen ? window.screen.height || 0 : 0;
-    return Math.max(window.innerHeight, lvh || 0, screenH) + (IS_IOS ? IOS_RUNWAY : 0);
+    const ios = window.CSS && CSS.supports && CSS.supports('-webkit-touch-callout', 'none');
+    const screenH = ios && window.screen ? window.screen.height || 0 : 0;
+    return Math.max(window.innerHeight, h || 0, screenH);
   }
 
   const SCRAMBLE_CHARS = "01!@#$%^&*/\\|<>{}[]+=~?:;.";
@@ -162,7 +158,7 @@
     resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = window.innerWidth;
-      const h = canvasHeight();
+      const h = largeViewportHeight();
       this.viewport = { width: w, height: h, dpr };
       this.canvas.width = Math.floor(w * dpr);
       this.canvas.height = Math.floor(h * dpr);
@@ -338,34 +334,31 @@
       this.pointerDownAt = 0;
       this.pointerDownPos = { x: 0, y: 0 };
 
-      // Page coordinates throughout (not client): the canvas sits at the
-      // document origin, and on iOS the document is parked a runway's worth
-      // of scroll down — pageX/Y stays aligned with canvas pixels either way.
-      this._onMove = (e) => this.updateCursor(e.pageX, e.pageY);
+      this._onMove = (e) => this.updateCursor(e.clientX, e.clientY);
       this._onDown = (e) => {
-        this.updateCursor(e.pageX, e.pageY);
+        this.updateCursor(e.clientX, e.clientY);
         this.dragging = true;
         this.pointerDownAt = performance.now();
-        this.pointerDownPos = { x: e.pageX, y: e.pageY };
+        this.pointerDownPos = { x: e.clientX, y: e.clientY };
       };
       this._onUp = (e) => {
         if (!this.dragging) return;
         const dt = performance.now() - this.pointerDownAt;
-        const drift = Math.hypot(e.pageX - this.pointerDownPos.x, e.pageY - this.pointerDownPos.y);
-        if (dt < 260 && drift < 8) this.emit('ripple', { x: e.pageX, y: e.pageY });
+        const drift = Math.hypot(e.clientX - this.pointerDownPos.x, e.clientY - this.pointerDownPos.y);
+        if (dt < 260 && drift < 8) this.emit('ripple', { x: e.clientX, y: e.clientY });
         else this.maybeImpulse();
         this.dragging = false;
       };
       this._onTouchStart = (e) => {
         if (!e.touches[0]) return;
         const t = e.touches[0];
-        Object.assign(this.cursor, { x: t.pageX, y: t.pageY, vx: 0, vy: 0, lastT: performance.now(), active: true });
+        Object.assign(this.cursor, { x: t.clientX, y: t.clientY, vx: 0, vy: 0, lastT: performance.now(), active: true });
         this.dragging = true;
         this.pointerDownAt = performance.now();
-        this.pointerDownPos = { x: t.pageX, y: t.pageY };
+        this.pointerDownPos = { x: t.clientX, y: t.clientY };
       };
       this._onTouchMove = (e) => {
-        if (e.touches[0]) this.updateCursor(e.touches[0].pageX, e.touches[0].pageY);
+        if (e.touches[0]) this.updateCursor(e.touches[0].clientX, e.touches[0].clientY);
       };
       this._onTouchEnd = () => {
         const dt = performance.now() - this.pointerDownAt;
@@ -421,32 +414,16 @@
       input.on('ripple', (p) => bg.addRipple(p.x, p.y));
       input.on('impulse', (p) => bg.addRipple(p.x, p.y));
 
-      // Tell the renderer where the text block sits so the field parts around
-      // it — in page coordinates, to match the canvas at the document origin.
+      // Tell the renderer where the text block sits so the field parts around it.
       function measureZone() {
         const r = content.getBoundingClientRect();
         bg.setZone(
-          r.left + window.scrollX + r.width / 2,
-          r.top + window.scrollY + r.height / 2,
+          r.left + r.width / 2,
+          r.top + r.height / 2,
           r.width / 2 + 30,
           r.height / 2 + 22
         );
       }
-      // iOS: park the scroll past the runway so Safari composites field
-      // pixels behind the status bar, and snap back if the user disturbs it.
-      if (IS_IOS) {
-        const park = () => window.scrollTo(0, IOS_RUNWAY);
-        park();
-        let parkTimer = 0;
-        window.addEventListener('scroll', () => {
-          clearTimeout(parkTimer);
-          parkTimer = setTimeout(() => {
-            if (Math.abs(window.scrollY - IOS_RUNWAY) > 1) park();
-          }, 90);
-        }, { passive: true });
-        window.addEventListener('load', park);
-      }
-
       measureZone();
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureZone);
       window.addEventListener('load', measureZone);

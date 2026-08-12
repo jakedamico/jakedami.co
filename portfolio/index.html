@@ -63,23 +63,13 @@
     @supports (height: 100lvh) {
       canvas.bg-canvas { height: 100lvh; }
     }
-    /* iOS Safari 26, researched behavior:
-       - fixed content is hard-clipped at the floating controls → absolute
-       - viewport-fit=cover reaches the BOTTOM safe area but never the top
-         status bar; the only pixels Safari composites behind the status bar
-         are scrolled-past ones.
-       So the page gets an invisible scroll runway (--runway): the canvas is
-       oversized, the scroll is parked past the runway on load (and snapped
-       back by the theme if disturbed), and Safari blurs real field pixels
-       behind both the status bar and the bottom controls — the same way any
-       scrolled page shows through them. Scoped to iOS WebKit via
-       -webkit-touch-callout; desktop/Android keep the static layout. */
+    /* iOS Safari 26 refuses to composite position:fixed content behind its
+       floating liquid-glass controls (it gets cut off) — absolute content
+       renders edge-to-edge fine. Scoped to iOS via -webkit-touch-callout.
+       No scroll appears: body's overflow:hidden propagates to the viewport,
+       and with viewport-fit=cover the clip box is the full physical screen. */
     @supports (-webkit-touch-callout: none) {
-      :root { --runway: 80px; }
-      html { overflow-y: auto; overscroll-behavior-y: none; }
-      body { overflow: visible; min-height: calc(100lvh + var(--runway)); }
       canvas.bg-canvas { position: absolute; }
-      main { height: 100svh; margin-top: var(--runway); }
     }
     main {
       position: relative; z-index: 1; height: 100vh;
