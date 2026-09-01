@@ -84,13 +84,15 @@
   // the carpet into slow masses floating in void. Raise for more black.
   const config = {
     cellSize: 12,
-    mobileCellSize: 13,
+    mobileCellSize: 10,
     mobileBreakpoint: 720,
     noiseScale: 0.021,
     // Phones: noiseScale is per-CELL, and a phone fits far fewer cells — at
     // the desktop scale one mass outspans the whole screen ("zoomed in").
     // Higher scale = smaller features, so masses fit the small screen.
-    mobileNoiseScale: 0.045,
+    // Retuned when mobileCellSize dropped 13 → 10: mass size in px scales with
+    // cellSize / noiseScale, so 0.045 * (10/13) keeps masses the same size.
+    mobileNoiseScale: 0.035,
     noiseTimeScale: 0.00012,
     // Domain warp. warpAmp = how hard the currents pull (higher = wispier,
     // thinner filaments; lower = closer to round blobs). warpBias = flat
