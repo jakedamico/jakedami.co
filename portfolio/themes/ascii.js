@@ -104,8 +104,8 @@
     rippleBand: 34,
     swipeMinSpeed: 1.6,
     bgFont: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
-    brightnessFloor: 60,
-    brightnessCeil: 158,
+    brightnessFloor: 80,
+    brightnessCeil: 190,
     visibilityThreshold: 0.5,
   };
 

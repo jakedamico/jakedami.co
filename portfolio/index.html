@@ -10,10 +10,11 @@
        translucent blur-of-content that makes pages read edge-to-edge. -->
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
-  <!-- Favicon: the # drawn as strokes, not text — a font glyph leaves its own
-       side bearings and sits on a baseline, so it renders small and low. These
-       four lines are symmetric about (32,32) and span 6–58 of the 64 box. -->
-  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><g stroke="%23c8c8c8" stroke-width="7"><path d="M25 6 L19 58"/><path d="M45 6 L39 58"/><path d="M6 23 L58 23"/><path d="M6 41 L58 41"/></g></svg>'>
+  <!-- Favicon: a lowercase j in the site's monospace stack. Text glyphs sit on
+       a baseline and carry side bearings, so the y is tuned by hand: the j's
+       visual center (dot to descender tail) lands near the middle of the box.
+       Renders in whatever the stack resolves to per platform, same as the page. -->
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" font-size="52" fill="%23f2f2f2">j</text></svg>'>
   <!-- Only the lava theme uses these; three.js is vendored, no CDN. -->
   <script type="importmap">
   {
@@ -43,7 +44,7 @@
       --bg: #f2efe9; --text: #1c1a17; --link: #6f6a60; --link-hover: #1c1a17;
     }
     :root[data-theme="ascii"] {
-      --bg: #000; --text: #c8c8c8; --link: #5f5f5f; --link-hover: #b4b4b4;
+      --bg: #000; --text: #f2f2f2; --link: #8c8c8c; --link-hover: #dcdcdc;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
