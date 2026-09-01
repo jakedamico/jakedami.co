@@ -90,10 +90,18 @@
       display: grid; place-items: center; text-align: center;
     }
     h1 {
+      display: inline-block; position: relative; text-align: left;
       font-size: 1.05rem; font-weight: 400; letter-spacing: .06em;
       margin: 0 0 1.4rem; user-select: none;
     }
-    h1::after {
+    /* Entry typing: the invisible ghost holds the finished layout (cursor
+       width included) so the box — and the field's cutout zone measured from
+       it — never shifts; #typed sits on top and grows a character at a time,
+       its ::after cursor riding the last character. */
+    h1 .ghost { visibility: hidden; }
+    h1 .ghost::after { content: "_"; margin-left: 2px; }
+    #typed { position: absolute; left: 0; top: 0; white-space: pre; }
+    #typed::after {
       content: "_"; margin-left: 2px;
       animation: blink 1.1s steps(1) infinite;
     }
@@ -109,7 +117,7 @@
 <body>
   <main>
     <div id="content">
-      <h1>building stuff</h1>
+      <h1 aria-label="building stuff"><span class="ghost" aria-hidden="true">building stuff</span><span id="typed" aria-hidden="true"></span></h1>
       <nav>
         <a href="https://www.linkedin.com/in/jacobdamico/" target="_blank" rel="noopener">linkedin</a>
         <a href="https://www.instagram.com/jaked.amico/" target="_blank" rel="noopener">instagram</a>
@@ -125,6 +133,22 @@
   // / ?theme=lava, or call setTheme('ascii') from the console. lava is an ES
   // module (three.js) — it needs http(s); on file:// the page falls back to
   // plain paper + text.
+  // Type the h1 once per load, then leave it (the cursor keeps blinking).
+  // Reduced-motion users get the finished text immediately.
+  (function () {
+    var typed = document.getElementById('typed');
+    var text = 'building stuff';
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      typed.textContent = text;
+      return;
+    }
+    var i = 0;
+    setTimeout(function tick() {
+      typed.textContent = text.slice(0, ++i);
+      if (i < text.length) setTimeout(tick, 55 + Math.random() * 50);
+    }, 350);
+  })();
+
   (function () {
     var name = document.documentElement.dataset.theme;
     if (window.__themes[name]) {
