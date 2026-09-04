@@ -94,12 +94,12 @@
       font-size: 1.05rem; font-weight: 400; letter-spacing: .06em;
       margin: 0 0 1.4rem; user-select: none;
     }
-    /* Entry typing: the invisible ghost holds the finished layout (cursor
-       width included) so the box — and the field's cutout zone measured from
-       it — never shifts; #typed sits on top and grows a character at a time,
-       its ::after cursor riding the last character. */
+    /* Entry typing: the invisible ghost holds the finished layout so the box
+       — and the field's cutout zone measured from it — never shifts; #typed
+       sits on top and grows a character at a time, its ::after cursor riding
+       the last character. The ghost deliberately has NO cursor: the box is
+       exactly the words, so the words center and the cursor overhangs. */
     h1 .ghost { visibility: hidden; }
-    h1 .ghost::after { content: "_"; margin-left: 2px; }
     #typed { position: absolute; left: 0; top: 0; white-space: pre; }
     #typed::after {
       content: "_"; margin-left: 2px;
