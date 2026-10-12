@@ -461,6 +461,9 @@
       this.projection = { cy:Math.cos(yaw),sy:Math.sin(yaw),cp:Math.cos(pitch),sp:Math.sin(pitch),scale:VIEW.scale,originX:VIEW.originX-this.view.x,origin:VIEW.originY-this.view.y };
       this.makeAtlas();
       this.sampleWorld();
+      // iOS keeps a replaced canvas's backing store until GC; zeroing it
+      // hands the memory back now, so repeated resizes cannot pile up.
+      if(this.staticCanvas) this.staticCanvas.width=this.staticCanvas.height=0;
       this.staticCanvas = document.createElement('canvas');
       this.staticCanvas.width = this.canvas.width; this.staticCanvas.height = this.canvas.height;
       this.staticContext = this.staticCanvas.getContext('2d', {alpha:true});
@@ -473,8 +476,8 @@
       this.canvas.dataset.view = `crop=${this.view.x},${this.view.y} scale=${VIEW.scale} font=${this.font}`;
     }
     makeAtlas() {
-      const world=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
-      this.atlas=world.canvas;this.aw=world.aw;this.ah=world.ah;
+      for(const old of [this.atlas,this.actorAtlas,this.camperAtlas,this.ponyHeadAtlas]) if(old) old.canvas.width=old.canvas.height=0;
+      this.atlas=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
       // Actors get a small, separate glyph sheet. Their font and spacing
       // stay fixed across viewports and terrain-detail settings.
       this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],true);
@@ -484,20 +487,30 @@
     buildAtlas(font,cw,ch,names,actor=false) {
       const d = this.dpr;
       const aw=Math.ceil(cw*d),ah=Math.ceil(ch*d);
+      // Color rows wrap into side-by-side bands so no edge passes 2048px.
+      // One tall strip (12k+px) exceeds iOS Safari's canvas texture limit
+      // and crashed the page there.
+      const rows=names.length*LEVELS*2,span=aw*GLYPHS.length;
+      const perBand=Math.max(1,Math.floor(2048/ah)),bands=Math.ceil(rows/perBand);
       const cv = document.createElement('canvas');
-      cv.width = aw * GLYPHS.length;
-      cv.height = ah * names.length * LEVELS * 2;
+      cv.width = span * bands;
+      cv.height = ah * Math.min(rows,perBand);
       const c = cv.getContext('2d');
       c.textAlign = 'center'; c.textBaseline = 'middle';
       for (let warmth = 0; warmth < 2; warmth++) for (let p = 0; p < names.length; p++) for (let l = 0; l < LEVELS; l++) {
         c.font = `${actor?600:['stone','rock','star','moon','fire','ember'].includes(names[p])?700:400} ${font * d}px ${FONT}`;
         const rgb = COLORS[names[p]], b = .17 + l / (LEVELS - 1) * 1.03;
         const row = (warmth * names.length + p) * LEVELS + l;
+        const ox=Math.floor(row/perBand)*span,oy=row%perBand*ah;
         const tint = warmth ? [1.32, .99, .57] : [1, 1, 1];
         c.fillStyle = `rgb(${rgb.map((v, k) => Math.round(clamp(v * b * tint[k], 0, 255))).join(',')})`;
-        for (let g = 1; g < GLYPHS.length; g++) c.fillText(GLYPHS[g],g*aw+aw/2,row*ah+ah*.5);
+        for (let g = 1; g < GLYPHS.length; g++) c.fillText(GLYPHS[g],ox+g*aw+aw/2,oy+ah*.5);
       }
-      return {canvas:cv,aw,ah,cw,ch,names,palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
+      return {canvas:cv,aw,ah,cw,ch,span,perBand,names,palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
+    }
+    blit(sheet,g,row,x,y,cw,ch) {
+      const sx=Math.floor(row/sheet.perBand)*sheet.span+g*sheet.aw,sy=row%sheet.perBand*sheet.ah;
+      this.ctx.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*this.dpr)/this.dpr,Math.round((y-ch/2)*this.dpr)/this.dpr,cw,ch);
     }
     glyph(g, palette, brightness, x, y, warm = false, alpha = 1, sheet=null) {
       if(sheet) {this.sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet);return;}
@@ -506,7 +519,7 @@
       const p=typeof palette==='string'?PAL[palette]:palette;
       const row=(p+(warm?PALETTE_NAMES.length:0))*LEVELS+l;
       this.ctx.globalAlpha = alpha;
-      this.ctx.drawImage(this.atlas,g*this.aw,row*this.ah,this.aw,this.ah,Math.round((x-this.cw/2)*this.dpr)/this.dpr,Math.round((y-this.ch/2)*this.dpr)/this.dpr,this.cw,this.ch);
+      this.blit(this.atlas,g,row,x,y,this.cw,this.ch);
     }
     sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet) {
       if(!g||alpha<.015||brightness<.025)return;
@@ -514,7 +527,7 @@
       const p=sheet.palette[typeof palette==='string'?palette:PALETTE_NAMES[palette]];
       const row=(p+(warm?sheet.names.length:0))*LEVELS+l;
       this.ctx.globalAlpha=alpha;
-      this.ctx.drawImage(sheet.canvas,g*sheet.aw,row*sheet.ah,sheet.aw,sheet.ah,Math.round((x-sheet.cw/2)*this.dpr)/this.dpr,Math.round((y-sheet.ch/2)*this.dpr)/this.dpr,sheet.cw,sheet.ch);
+      this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch);
     }
     measureZone() {
       const r = this.content.getBoundingClientRect();
