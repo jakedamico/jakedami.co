@@ -15,7 +15,7 @@
        visual center (dot to descender tail) lands near the middle of the box.
        Renders in whatever the stack resolves to per platform, same as the page. -->
   <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" font-size="52" fill="%23f2f2f2">j</text></svg>'>
-  <!-- Only the lava theme uses these; three.js is vendored, no CDN. -->
+  <!-- The lava and landscape3d themes use these; three.js is vendored, no CDN. -->
   <script type="importmap">
   {
     "imports": {
@@ -26,9 +26,9 @@
   </script>
   <script>
   // Theme pick — runs before first paint so there's no color flash.
-  // ?theme=lava|thermal|ascii wins and persists; saved choice next; default ascii.
+  // ?theme=lava|thermal|ascii|landscape|landscape3d|riverkeep wins and persists; saved choice next; default ascii.
   (function () {
-    var VALID = { lava: 1, thermal: 1, ascii: 1 };
+    var VALID = { lava: 1, thermal: 1, ascii: 1, landscape: 1, landscape3d: 1, riverkeep: 1 };
     var q = new URLSearchParams(location.search).get('theme');
     var saved = null;
     try { saved = localStorage.getItem('theme'); } catch (e) {}
@@ -45,6 +45,13 @@
     }
     :root[data-theme="ascii"] {
       --bg: #000; --text: #f2f2f2; --link: #8c8c8c; --link-hover: #dcdcdc;
+    }
+    :root[data-theme="landscape"],
+    :root[data-theme="landscape3d"] {
+      --bg: #05070c; --text: #e9edf3; --link: #8893a3; --link-hover: #d9e0ea;
+    }
+    :root[data-theme="riverkeep"] {
+      --bg: #080f18; --text: #e3e9de; --link: #9bada4; --link-hover: #f1ecd9;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -127,12 +134,15 @@
 
   <script src="themes/ascii.js"></script>
   <script src="themes/thermal.js"></script>
+  <script src="themes/landscape.js"></script>
+  <script src="themes/riverkeep.js"></script>
   <script>
   // Boot the active theme. A theme owns its canvas and context type, so
   // switching is a reload, not a hot swap: visit ?theme=ascii / ?theme=thermal
-  // / ?theme=lava, or call setTheme('ascii') from the console. lava is an ES
-  // module (three.js) — it needs http(s); on file:// the page falls back to
-  // plain paper + text.
+  // / ?theme=lava / ?theme=landscape / ?theme=landscape3d, or call
+  // setTheme('ascii') from the console. lava and landscape3d are ES modules
+  // (three.js) — they need http(s); on file:// the page falls back to plain
+  // background + text.
   // Type the h1 once per load, then leave it (the cursor keeps blinking).
   // Reduced-motion users get the finished text immediately.
   (function () {
@@ -154,9 +164,9 @@
     if (window.__themes[name]) {
       window.__themes[name].start(document.getElementById('content'));
     } else {
-      import('./themes/lava.js')
+      import('./themes/' + name + '.js')
         .then(function (m) { m.start(document.getElementById('content')); })
-        .catch(function (e) { console.error('lava theme failed to load:', e); });
+        .catch(function (e) { console.error(name + ' theme failed to load:', e); });
     }
     window.setTheme = function (name) {
       try { localStorage.setItem('theme', name); } catch (e) {}
