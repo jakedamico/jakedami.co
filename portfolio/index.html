@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="riverkeep">
 <head>
   <meta charset="utf-8">
   <!-- viewport-fit=cover: let the page extend into the iOS safe areas
@@ -15,36 +15,12 @@
        visual center (dot to descender tail) lands near the middle of the box.
        Renders in whatever the stack resolves to per platform, same as the page. -->
   <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23000000"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" font-size="52" fill="%23f2f2f2">j</text></svg>'>
-  <!-- Only the lava theme uses these; three.js is vendored, no CDN. -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "./vendor/three/three.module.min.js",
-      "three/addons/": "./vendor/three/addons/"
-    }
-  }
-  </script>
-  <script>
-  // Theme pick — runs before first paint so there's no color flash.
-  // ?theme=lava|thermal|ascii wins and persists; saved choice next; default ascii.
-  (function () {
-    var VALID = { lava: 1, thermal: 1, ascii: 1 };
-    var q = new URLSearchParams(location.search).get('theme');
-    var saved = null;
-    try { saved = localStorage.getItem('theme'); } catch (e) {}
-    var t = VALID[q] ? q : VALID[saved] ? saved : 'ascii';
-    if (VALID[q]) { try { localStorage.setItem('theme', q); } catch (e) {} }
-    document.documentElement.dataset.theme = t;
-  })();
-  </script>
+  <!-- One theme ships: riverkeep. The other themes (ascii, thermal, lava,
+       landscape, landscape3d) and the ?theme= switcher live on the
+       theme-lab branch. -->
   <style>
-    /* Each theme owns its page palette; engines live in themes/*.js. */
-    :root[data-theme="lava"],
-    :root[data-theme="thermal"] {
-      --bg: #f2efe9; --text: #1c1a17; --link: #6f6a60; --link-hover: #1c1a17;
-    }
-    :root[data-theme="ascii"] {
-      --bg: #000; --text: #f2f2f2; --link: #8c8c8c; --link-hover: #dcdcdc;
+    :root[data-theme="riverkeep"] {
+      --bg: #080f18; --text: #e3e9de; --link: #9bada4; --link-hover: #f1ecd9;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -125,14 +101,8 @@
     </div>
   </main>
 
-  <script src="themes/ascii.js"></script>
-  <script src="themes/thermal.js"></script>
+  <script src="themes/riverkeep.js"></script>
   <script>
-  // Boot the active theme. A theme owns its canvas and context type, so
-  // switching is a reload, not a hot swap: visit ?theme=ascii / ?theme=thermal
-  // / ?theme=lava, or call setTheme('ascii') from the console. lava is an ES
-  // module (three.js) — it needs http(s); on file:// the page falls back to
-  // plain paper + text.
   // Type the h1 once per load, then leave it (the cursor keeps blinking).
   // Reduced-motion users get the finished text immediately.
   (function () {
@@ -149,20 +119,7 @@
     }, 350);
   })();
 
-  (function () {
-    var name = document.documentElement.dataset.theme;
-    if (window.__themes[name]) {
-      window.__themes[name].start(document.getElementById('content'));
-    } else {
-      import('./themes/lava.js')
-        .then(function (m) { m.start(document.getElementById('content')); })
-        .catch(function (e) { console.error('lava theme failed to load:', e); });
-    }
-    window.setTheme = function (name) {
-      try { localStorage.setItem('theme', name); } catch (e) {}
-      location.href = location.pathname;
-    };
-  })();
+  window.__themes.riverkeep.start(document.getElementById('content'));
   </script>
 </body>
 </html>
