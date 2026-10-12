@@ -823,6 +823,7 @@
       this.waterEddySpin=new Int8Array(n);this.waterEddyDirection=new Uint8Array(n);
       this.waterPierDistance=new Float32Array(n).fill(1e3);this.waterPierRipple=new Float32Array(n);this.waterPierDirection=new Uint8Array(n);
       this.waterSpeed=new Float32Array(n);this.waterBank=new Float32Array(n);this.waterWake=new Float32Array(n);this.waterShadow=new Float32Array(n).fill(1);
+      this.grassBlade=new Uint8Array(n);this.grassRest=new Float32Array(n);this.trample=this.trampleActive=null;
       this.flowers = []; this.reeds = []; this.grassIndices = [];
       for (let j = 0; j < this.rows; j++) for (let i = 0; i < this.cols; i++) {
         const k = j * this.cols + i, px = (i + .5) * this.cw, py = (j + .5) * this.ch;
@@ -841,6 +842,7 @@
         this.glyphs[k] = GI[m === MAT.water ? '~' : m === MAT.path ? (seed < .5 ? '.' : ':') : m === MAT.rock ? ':%#='[Math.floor(seed*4)] : "',|/\\`"[Math.floor(seed*6)]];
         if(wetBank) {this.shade[k]=.31+seed*.18;this.glyphs[k]=GI[seed>.83?':':seed>.50?',':'.'];}
         if(m===MAT.earth) {this.shade[k]=.59+noise(p.x*.33,p.z*.29,321)*.18;this.glyphs[k]=GI[seed>.86?':':seed>.55?',':'.'];}
+        if(m===MAT.grass) this.sowGrass(k,p.x,p.z,seed);
         if (!water) {
           this.shadow[k]=this.castleShadow(p.x,p.y+.08,p.z);
         }
@@ -911,10 +913,20 @@
           if (value > best) { best = value; index = l; }
         }
         this.light[k] = best; this.lightIndex[k] = index;
-        this.dynamic[k] = m===MAT.grass || m===MAT.water || m===MAT.warm || best>.05 || this.signCell[k]>=0 ? 1 : 0;
+        this.dynamic[k] = m===MAT.water || m===MAT.warm || best>.05 || this.signCell[k]>=0 ? 1 : 0;
       }
       for(const flower of this.flowers)flower.warm=this.light[flower.k];
     }
+    // Every grass cell holds a blade, laid over by one still gust so the
+    // meadow keeps its sweeping texture. It holds still until something moves
+    // through it (see trampleGrass). Short tufts never lean.
+    sowGrass(k,x,z,seed) {
+      if(seed<.21) {this.glyphs[k]=GI["',`"[Math.floor(seed*12)%3]];return;}
+      const rest=(Math.sin(x*.35+z*.18)+Math.sin(x*.09)*.7)*.3;
+      this.grassBlade[k]=1;this.grassRest[k]=rest;
+      this.glyphs[k]=this.bladeGlyph(rest);
+    }
+    bladeGlyph(bend) { return GI[bend>.28?'/':bend<-.28?'\\':'|']; }
     milkyWay(vx,vy,out=this.bandOut) {
       // s runs along the band, u across it. The band's centre wanders, its
       // light clumps into star clouds, and a dark dust lane splits the core.
@@ -1222,6 +1234,7 @@
       // The reader keeps the looser ground rules until back on open ground.
       const reader=this.reader,errand=reader&&(reader.state!=='away'||!this.walkable(reader.fig.x,reader.fig.z));
       for(const fig of this.folk)Folk.step(fig,dt,errand&&fig===reader.fig?reader.world:this.world);
+      this.trampleGrass(dt);
       if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
       for (const meteor of this.meteors) meteor.age += dt;
       this.meteors = this.meteors.filter(m=>m.age<m.life);
@@ -1236,6 +1249,94 @@
       for (const s of this.sparks) s.age += dt;
       this.sparks = this.sparks.filter(s=>s.age<s.life);
       if (hash(Math.floor(t*60),97) < dt*8 && this.sparks.length<25) this.sparks.push({ age:0,life:1.5+hash(Math.floor(t*60),98)*1.7,dx:(hash(Math.floor(t*60),99)-.5)*1.6 });
+    }
+    // Where the pony and rabbit have grazed to by time t.
+    wander(t=this.time) {
+      const {pony,rabbit}=this.wildlife;
+      return {ponyX:pony.x+Math.sin(t*.075)*2,rabbitX:rabbit.x+Math.sin(t*.09)*.6};
+    }
+    trampleGrass(dt) {
+      // Each bent cell is a damped spring: it eases back upright behind
+      // whatever passed and swings a little past before it settles.
+      if(!this.trample) {
+        this.trample=new Float32Array(this.n);this.trampleV=new Float32Array(this.n);
+        this.trampleOn=new Uint8Array(this.n);this.trampleActive=[];this.movers=null;
+      }
+      const bend=this.trample,vel=this.trampleV,active=this.trampleActive,h=Math.min(dt,.05),w=7,zeta=.35;
+      let kept=0;
+      for(const k of active) {
+        vel[k]+=(-w*w*bend[k]-2*zeta*w*vel[k])*h;bend[k]+=vel[k]*h;
+        if(Math.abs(bend[k])<.02&&Math.abs(vel[k])<.1) {bend[k]=vel[k]=0;this.trampleOn[k]=0;}
+        else active[kept++]=k;
+      }
+      active.length=kept;
+      // Walkers, the grazing animals and the cursor push the blades aside,
+      // but only while they move.
+      const {pony,rabbit}=this.wildlife,{ponyX,rabbitX}=this.wander(),ground=this.cursor.active&&this.cursor.ground;
+      const movers=[...this.folk.map(fig=>[fig.x,fig.z,3]),[ponyX,pony.z,4.2],[rabbitX,rabbit.z,1.6]];
+      if(ground) movers.push([ground.x,ground.z,3.6]);
+      const last=this.movers;
+      this.movers=movers;
+      if(last&&dt>0) movers.forEach(([x,z,r],i)=>{
+        if(last[i]&&Math.hypot(x-last[i][0],z-last[i][1])/dt>.03) this.pushGrass(x,z,r);
+      });
+      // A tap on the meadow sends a ring outward through the grass.
+      for(const ripple of this.ripples) if(!ripple.speed&&ripple.age<1.4) {
+        const radius=ripple.age*11,strength=Math.exp(-ripple.age*1.2),cx=this.project(ripple.x,height(ripple.x,ripple.z),ripple.z).x;
+        for(const k of this.grassIndices) {
+          const off=Math.abs(Math.hypot(this.wx[k]-ripple.x,this.wz[k]-ripple.z)-radius);
+          if(off<1.2) this.bendGrass(k,((k%this.cols+.5)*this.cw<cx?-1:1)*strength*(1-off/1.2));
+        }
+      }
+      // Now and then a gust rolls across the meadow, laying the blades over
+      // as it passes. They spring back up in its wake on their own.
+      this.nextGust??=this.time+5;
+      if(!this.gust&&this.time>=this.nextGust&&this.grassIndices.length) this.spawnGust();
+      const gust=this.gust;
+      if(gust) {
+        gust.age+=dt;
+        if(gust.age>=gust.life) {this.gust=null;this.nextGust=this.time+8+Math.random()*12;}
+        else this.pushGust(gust);
+      }
+    }
+    spawnGust() {
+      // Aim it at a random patch of grass and start it just off screen.
+      const k=this.grassIndices[Math.floor(Math.random()*this.grassIndices.length)];
+      const dir=Math.random()<.5?1:-1,rx=Math.max(90,this.W*(.10+Math.random()*.10)),ry=rx*(.25+Math.random()*.15);
+      const speed=Math.max(140,this.W*(.14+Math.random()*.08));
+      this.gust={dir,rx,ry,speed,y:(Math.floor(k/this.cols)+.5)*this.ch,x0:dir>0?-rx:this.W+rx,age:0,life:(this.W+rx*2)/speed,
+        strength:.8+Math.random()*.5,seed:Math.random()*100};
+    }
+    pushGust(gust) {
+      const cw=this.cw,ch=this.ch,a=gust.age,swell=Math.sin(Math.PI*a/gust.life);
+      const cx=gust.x0+gust.dir*gust.speed*a,cy=gust.y+Math.sin(a*.9+gust.seed)*gust.ry*.5;
+      const i0=Math.max(0,Math.floor((cx-gust.rx)/cw)),i1=Math.min(this.cols-1,Math.floor((cx+gust.rx)/cw));
+      const j0=Math.max(0,Math.floor((cy-gust.ry)/ch)),j1=Math.min(this.rows-1,Math.floor((cy+gust.ry)/ch));
+      for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++) {
+        const k=j*this.cols+i;
+        if(this.material[k]!==MAT.grass) continue;
+        const x=(i+.5)*cw,y=(j+.5)*ch,e=((x-cx)/gust.rx)**2+((y-cy)/gust.ry)**2;
+        if(e>=1) continue;
+        // Ragged, streaky fingers rather than a smooth oval.
+        const streak=noise(x*.025-a*gust.dir*1.5,y*.09,611+gust.seed);
+        const push=(1-e)*gust.strength*(.6+swell*.4)*smooth(.25,.7,streak)*1.6;
+        if(push>.05) this.bendGrass(k,gust.dir*Math.min(1,push));
+      }
+    }
+    pushGrass(x,z,r) {
+      const q=this.projection,c=this.project(x,height(x,z),z),cw=this.cw,ch=this.ch;
+      const ci=Math.floor(c.x/cw),cj=Math.floor(c.y/ch),ri=Math.ceil(r*q.scale/cw)+1,rj=Math.ceil(r*q.scale/ch)+1;
+      for(let j=Math.max(0,cj-rj);j<=Math.min(this.rows-1,cj+rj);j++) for(let i=Math.max(0,ci-ri);i<=Math.min(this.cols-1,ci+ri);i++) {
+        const k=j*this.cols+i;
+        if(this.material[k]!==MAT.grass) continue;
+        const reach=1-Math.hypot(this.wx[k]-x,this.wz[k]-z)/r;
+        if(reach>0) this.bendGrass(k,((i+.5)*cw<c.x?-1:1)*Math.min(1,reach*1.8));
+      }
+    }
+    bendGrass(k,push) {
+      if(Math.abs(push)<=Math.abs(this.trample[k])) return;
+      this.trample[k]=push;this.trampleV[k]=0;
+      if(!this.trampleOn[k]) {this.trampleOn[k]=1;this.trampleActive.push(k);}
     }
     spawnMeteor() {
       // Start somewhere in the visible upper sky and streak down and across,
@@ -1300,27 +1401,19 @@
     drawWorld(staticPass=false) {
       const t=this.time,cw=this.cw,ch=this.ch;
       const lighting=this.moonlight;
-      const windTick=Math.floor(t*5);
+      const trample=staticPass?null:this.trample;
       const lightFlickers=this.lights.map(l=>.83+Math.sin(t*8+l.phase)*.10+Math.sin(t*13+l.phase)*.06);
       for(let j=0;j<this.rows;j++) for(let i=0;i<this.cols;i++) {
         const k=j*this.cols+i,m=this.material[k];
         if(m===MAT.sky || (staticPass ? this.dynamic[k] : !this.dynamic[k])) continue;
-        const x=(i+.5)*cw,y=(j+.5)*ch,seed=this.seed[k];
+        const x=(i+.5)*cw,y=(j+.5)*ch;
         let g=this.glyphs[k],p=PAL[MATERIAL_NAMES[m]],b=this.shade[k]*lighting*this.shadow[k];
         const warm=this.light[k]*lightFlickers[this.lightIndex[k]];
         if(m===MAT.grass) {
-          const gust=Math.sin(this.wx[k]*.35+this.wz[k]*.18-t*1.5)+Math.sin(this.wx[k]*.09-t*.6)*.7;
-          let bend=gust*this.wind;
-          if(this.cursor.active) {
-            const distance=Math.hypot((x-this.cursor.x)*.75,y-this.cursor.y);
-            if(distance<70) bend+=(x-this.cursor.x)/35*(1-distance/70)*2;
-          }
-          for(const ripple of this.ripples) {
-            const dist=Math.hypot(this.wx[k]-ripple.x,this.wz[k]-ripple.z);
-            if(Math.abs(dist-ripple.age*11)<2&&!ripple.speed) bend+=Math.sin(dist-ripple.age*11)*Math.exp(-ripple.age)*1.7;
-          }
-          g=GI[seed<.21?"',`"[(Math.floor(seed*12)+windTick%2)%3]:bend>.28?'/':bend<-.28?'\\':'|'];
-          b+=gust*.023+warm*.43;
+          // Only lamplit grass is drawn here; the rest is baked (drawTrampled).
+          const bend=trample?trample[k]:0;
+          g=this.grassGlyph(k,bend);
+          b+=warm*.43+Math.abs(bend)*.20;
         } else if(m===MAT.water) {
           const surface=this.waterSample(k,t,lighting,warm);
           g=surface.g;p=surface.p;b=surface.b;
@@ -1335,6 +1428,29 @@
         // Atmospheric depth keeps the forest distant, foreground textured.
         b*=1-smooth(18,80,-this.wz[k])*.32;
         this.glyph(g,p,b,x,y,m===MAT.water?false:warm>.15||lit);
+      }
+      if(!staticPass) this.drawTrampled();
+    }
+    // A blade leans away from whatever brushed it; a tuft only shows a firm push.
+    grassGlyph(k,bend) {
+      if(this.grassBlade[k]) return this.bladeGlyph(this.grassRest[k]+bend);
+      return Math.abs(bend)>.45?GI[bend>0?'/':'\\']:this.glyphs[k];
+    }
+    drawTrampled() {
+      // Unlit grass is baked into the static layer. A cell something has bent
+      // is cleared back to the background and redrawn bent.
+      const active=this.trampleActive;
+      if(!active) return;
+      const c=this.ctx,cw=this.cw,ch=this.ch,d=this.dpr,lighting=this.moonlight;
+      for(const k of active) {
+        if(this.dynamic[k]) continue;
+        const bend=this.trample[k],g=this.grassGlyph(k,bend);
+        if(g===this.glyphs[k]) continue;
+        const i=k%this.cols,j=(k-i)/this.cols,left=Math.round(i*cw*d)/d,top=Math.round(j*ch*d)/d;
+        c.globalAlpha=1;c.fillStyle=BG;
+        c.fillRect(left,top,Math.round((i+1)*cw*d)/d-left,Math.round((j+1)*ch*d)/d-top);
+        const b=(this.shade[k]*lighting*this.shadow[k]+Math.abs(bend)*.20)*(1-smooth(18,80,-this.wz[k])*.32);
+        this.glyph(g,PAL.grass,b,(i+.5)*cw,(j+.5)*ch);
       }
     }
     waterSample(k,t,lighting,warm=0,out=this.waterOut) {
@@ -1493,8 +1609,7 @@
       }
       // Animals and people share one far-to-near pass, so whoever stands
       // nearer covers the other; an animal's matte never erases a person.
-      const {dog,pony,rabbit}=this.wildlife;
-      const ponyX=pony.x+Math.sin(t*.075)*2,rabbitX=rabbit.x+Math.sin(t*.09)*.6;
+      const {dog,pony,rabbit}=this.wildlife,{ponyX,rabbitX}=this.wander(t);
       const actors=[
         {x:dog.x,y:dog.y,z:dog.z,draw:()=>this.sprite(SPRITES.dog,dog.x,dog.y,dog.z,'deer',.76,0,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true})},
         {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true})},
