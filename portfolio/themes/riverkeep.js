@@ -2,7 +2,7 @@
 // A small CPU depth buffer gives architecture, terrain and glyph actors the
 // same projection and occlusion. Geometry is sampled into character cells;
 // it is never painted as a solid silhouette underneath the characters.
-// Static world sampling is cached. Weather, lighting, water and living
+// Static world sampling is cached. Sky, lighting, water and living
 // details animate on that cache, using a pre-colored character atlas.
 (function () {
   'use strict';
@@ -14,10 +14,28 @@
   const BG = '#080f18';
   const ACTOR = {font:7.5,cw:4.75,ch:7.5};
   const CAMPER = {font:9.5,cw:5.9,ch:10};
+  const Folk = window.__folk;
   const PONY_HEAD = {scale:.88,firstColumn:5,rows:3,pivotColumn:6,pivotRow:3};
+  const CAMERA = {yaw:.52,pitch:.58};
+  // Signpost lettering gets its own larger glyph sheets so the links stay
+  // legible on a phone. Boards are listed top to bottom; y is each board's
+  // lower edge above the post's foot, len and h its size in world units.
+  const SIGN = {font:16,cw:9.9,ch:16};
+  const SIGN_TITLE = {font:12,cw:7.4,ch:12};
+  const SIGN_GLYPHS = ' abcdefghijklmnopqrstuvwxyz._';
+  const SIGN_BOARDS = [
+    {text:'building stuff',title:true,len:17.8,h:5.7,y:18.3},
+    {text:'linkedin',len:16.7,h:6.7,y:10.9},
+    {text:'instagram',len:16.7,h:6.7,y:3.5},
+  ];
+  // Firefly lettering (?links=fireflies; the signpost is the default): the
+  // same lines float over the meadow, each letter one glowing firefly.
+  // Glyph cells are padded so the glow fits around each letter. Rows are
+  // screen offsets above the anchor on the ground.
+  const FLY_TEXT = {font:12,cw:7.4,ch:12,pad:14};
+  const FLY_TITLE = {font:9.5,cw:5.8,ch:10,pad:12};
+  const FLY_ROWS = [-68,-40,-12];
   const SPRITES = {
-    camper:[' o ','/|_','/ >'],
-    friend:[' o ',' /|','< \\'],
     dog:[' /\\   ','(o)__ ',' /##\\~',' | |  '],
     // Redrawn compact pony inspired by https://ascii.co.uk/art/horse.
     // Closed outlines keep the muzzle readable as the head scales down.
@@ -36,7 +54,7 @@
     dark: [24, 34, 44], warm: [255, 177, 76], star: [193, 213, 215],
     moon: [227, 234, 207], fire: [255, 150, 53], pink: [214, 154, 173],
     cream: [233, 219, 152], lilac: [173, 163, 208], blue: [119, 179, 200],
-    rain: [117, 151, 168], fly: [219, 231, 139], cloth: [160, 178, 187],
+    fly: [219, 231, 139], cloth: [160, 178, 187],
     deer: [170, 135, 91], ember: [255, 206, 103], moss: [98, 129, 86],
     shrub: [89, 139, 78], bark: [176, 111, 60],
     canvas: [184, 161, 122], earth: [140, 112, 77],
@@ -46,9 +64,21 @@
   const PAL = Object.fromEntries(PALETTE_NAMES.map((n, i) => [n, i]));
   const LEVELS = 16;
   const MOON_LIGHT = { x: .72, y: .92, z: .48 };
+  // Seconds per water flow-map cycle; see waterSample.
+  const FLOW_PERIOD = 8;
   // One scene scale and one pixel coordinate system. Viewports reveal a
   // crop around its center; scene objects never move or shrink to fit.
   const VIEW = { width:1200, height:900, originX:560, originY:441, scale:6.75 };
+  // Sky layouts in scene pixels. On desktop the Milky Way rises from the
+  // eastern horizon and arcs up over the castle, with the moon clear of it in
+  // the upper right. Portrait phones see only the castle's left side to just
+  // past the camp, so there the band climbs from the hill beside the camp to
+  // above the castle's left side, and the moon hangs over the camp.
+  const skyBand = (x, y, dx, dy) => { const a = Math.atan2(dy, dx); return { x, y, cos:Math.cos(a), sin:Math.sin(a), core:44, width:115 }; };
+  const SKY_LAYOUTS = {
+    desktop: { band:skyBand(400, -40, 900, 500), moon:{ x:1090, y:72, r:24 } },
+    mobile: { band:skyBand(420, -91, 340, 290), moon:{ x:690, y:30, r:24 } },
+  };
   const fract = x => x - Math.floor(x);
   function hash(x, z, salt = 0) {
     let v = Math.imul(x, 374761393) ^ Math.imul(z, 668265263) ^ Math.imul(salt + 17, 1274126177);
@@ -86,21 +116,23 @@
       this.ctx = canvas.getContext('2d', { alpha: true });
       this.content = content;
       this.time = 0;
-      this.weather = 'auto';
       this.detail = 'fine';
       this.camera = { x:0, y:0 };
       this.paused = false;
       this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      this.rain = 0;
-      this.cloud = .15;
-      this.flash = 0;
+      this.moonlight = .9;
       this.meteors = [];
       this.ripples = [];
       this.sparks = [];
-      this.splashes = [];
-      this.nextMeteor = 7;
-      this.nextLightning = 5;
+      this.nextMeteor = 4;
+      this.satellite = null;
+      this.nextSatellite = 15;
+      this.sky = 'new';
+      this.bandOut = {};
       this.cursor = { x: -999, y: -999, active: false };
+      this.signHover = -1;
+      this.reader = null;
+      this.linkStyle = new URLSearchParams(location.search).get('links')==='fireflies' ? 'fireflies' : 'sign';
       this.lights = [];
       this.polygons = [];
       this.trees = [];
@@ -207,6 +239,10 @@
       ];
       this.fire = { x:riverX(30)+riverWidth(30)+7.0, z:30 };
       this.fire.y = height(this.fire.x, this.fire.z);
+      // The page's signpost (DOM boards) stands in the meadow west of the
+      // bend: inside a phone's crop, clear of the bridge and the camp.
+      this.sign = { x:1.92, z:43.9 };
+      this.sign.y = height(this.sign.x, this.sign.z);
       // Asymmetric keep: tall rear watchtower, open parapets and a low gatehouse.
       this.box(-19, 4.9, -25, 13, 11.4, 10);
       this.wall(-19, -19.8, 13.3, 11.7, .8, 4.9);
@@ -354,7 +390,7 @@
       for(let i=0;i<46;i++) {
         const z=-6+hash(i,260)*113,side=i%2?1:-1;
         const x=riverX(z)+side*(riverWidth(z)+2.8+hash(i,261)*8);
-        if(pathDistance(x,z)<2.4||this.campDistance(x,z)<1.20||riverDistance(x,z)<1.5)continue;
+        if(pathDistance(x,z)<2.4||this.campDistance(x,z)<1.20||riverDistance(x,z)<1.5||Math.hypot(x-this.sign.x,z-this.sign.z)<5)continue;
         this.shrubs.push({x,z,y:height(x,z),r:1.1+hash(i,262)*1.7,h:.8+hash(i,263)*1.1,seed:i+600});
       }
       for(const tree of this.trees) {
@@ -362,9 +398,10 @@
         this.shrubs.push({x:tree.x+1.0,z:tree.z+.5,y:height(tree.x+1,tree.z+.5),r:1.1,h:.85,seed:tree.seed+900});
       }
       this.makeCamp();
+      if(this.linkStyle==='sign') this.makeSign(); else this.makeFlyWords();
       this.wildlife={
         dog:{x:this.fire.x+11,z:this.fire.z+5.5},
-        pony:{x:-27,z:18},rabbit:{x:-13,z:39},
+        pony:{x:-27,z:18},rabbit:{x:-22,z:52},
       };
       for(const animal of Object.values(this.wildlife))animal.y=height(animal.x,animal.z)+.12;
       for (let i = 0; i < 17; i++) {
@@ -372,10 +409,37 @@
         const x = riverX(z) + side * (riverWidth(z) + .4 + hash(i, 50) * 2.5);
         this.box(x, Math.max(0, height(x, z)) - .2, z, .7 + hash(i, 52), .45 + hash(i, 53), .8 + hash(i, 54), MAT.rock);
       }
+      // Two campers keep to the fire; walkers wander the meadows on both banks.
+      const camp=this.camp,f=this.fire,facing=p=>Math.atan2(f.z-p.z,f.x-p.x);
+      // A small ring on the water where a bobber lands or a fish bites.
+      const splash=(x,z)=>{this.ripples.push({x,z,age:0,speed:2.6});if(this.ripples.length>5)this.ripples.shift();};
+      this.world={height,walkable:(x,z)=>this.walkable(x,z),splash};
+      // Someone fishing from the east bank upstream of the bridge.
+      const fz=-20,edge=riverX(fz)+riverWidth(fz),bob={x:edge-2.4,z:fz-.5};
+      this.folk=[
+        Folk.create({...camp.camper,heading:facing(camp.camper),seed:3,palette:'cloth',brightness:.91,clips:['warm','warm2','warm','rest']},this.world),
+        Folk.create({...camp.friend,heading:facing(camp.friend),seed:8,palette:'cream',brightness:.80,clips:['warm2','rest','warm']},this.world),
+        ...[[45,48,9,'canvas'],[34,13,6,'lilac'],[-12,46,8,'cloth']].map(([x,z,r,palette],i)=>
+          Folk.create({x,z,heading:i*2.1,seed:20+i,palette,brightness:.78,speed:1.3+i*.12,home:{x,z,r}},this.world)),
+        Folk.create({x:edge+1.4,z:fz,heading:Math.atan2(bob.z-fz,bob.x-edge-1.4),seed:31,palette:'cream',brightness:.80,rod:bob},this.world),
+      ];
+      if(this.linkStyle==='sign') this.makeReader();
     }
 
     campDistance(x,z) {
       return Math.hypot((x-this.fire.x-2)/8.3,(z-this.fire.z+.4)/6.8);
+    }
+    // Open ground a walker may cross: dry, gentle, and clear of the keep,
+    // trees, shrubs, the camp, the signpost and the animals. The sign's
+    // reader may come closer to the bank and the post (see makeReader).
+    walkable(x,z,bank=3.2,post=3) {
+      if(riverDistance(x,z)<bank||this.campDistance(x,z)<1.15||Math.hypot(x-this.sign.x,z-this.sign.z)<post)return false;
+      if(x>-40&&x<0&&z<-10)return false;
+      if(Math.hypot(height(x+.8,z)-height(x-.8,z),height(x,z+.8)-height(x,z-.8))>1.1)return false;
+      for(const tree of this.trees)if(Math.abs(tree.x-x)<tree.r+1&&Math.hypot(tree.x-x,tree.z-z)<tree.r*.7+.6)return false;
+      for(const shrub of this.shrubs)if(Math.hypot(shrub.x-x,shrub.z-z)<shrub.r+.5)return false;
+      for(const animal of Object.values(this.wildlife))if(Math.hypot(animal.x-x,animal.z-z)<3)return false;
+      return true;
     }
     makeCamp() {
       const f=this.fire,anchor=(dx,dz,lift=0)=>({x:f.x+dx,y:height(f.x+dx,f.z+dz)+lift,z:f.z+dz});
@@ -401,6 +465,93 @@
         const angle=i*TAU/9,rock=anchor(Math.cos(angle)*1.45,Math.sin(angle)*1.10);
         this.box(rock.x,rock.y+.02,rock.z,.55,.30,.48,MAT.rock);
       }
+    }
+
+    makeSign() {
+      // Boards turn to face the camera (along = screen right, out = toward
+      // the viewer), so their lettering runs level across the screen. They
+      // are nailed across the front of one post, extending east from it.
+      const s=this.sign,along=[Math.cos(CAMERA.yaw),0,-Math.sin(CAMERA.yaw)],out=[Math.sin(CAMERA.yaw),0,Math.cos(CAMERA.yaw)];
+      const top=s.y+SIGN_BOARDS[0].y+SIGN_BOARDS[0].h+.5;
+      this.box(s.x,s.y-.3,s.z,.85,top-s.y+.3,.85,MAT.bark,{part:'signPost'});
+      s.boards=SIGN_BOARDS.map((spec,index)=>{
+        const offset=spec.len/2-.6,thick=.35;
+        const cx=s.x+along[0]*offset+out[0]*.45,cz=s.z+along[2]*offset+out[2]*.45,cy=s.y+spec.y+spec.h/2;
+        const font=spec.title?SIGN_TITLE:SIGN;
+        const board={...spec,index,x:cx,y:cy,z:cz,along,out,thick,band:font.ch*.68/(VIEW.scale*Math.cos(CAMERA.pitch)),textHalf:spec.text.length*font.cw/2/VIEW.scale};
+        const corner=(u,v,w)=>[cx+along[0]*u+out[0]*w,cy+v,cz+along[2]*u+out[2]*w];
+        const L=spec.len/2,H=spec.h/2,T=thick/2;
+        const surface={part:'signBoard',board};
+        this.addPoly([corner(-L,-H,T),corner(L,-H,T),corner(L,H,T),corner(-L,H,T)],MAT.wood,.92,0,{normal:out,...surface});
+        this.addPoly([corner(-L,H,-T),corner(L,H,-T),corner(L,H,T),corner(-L,H,T)],MAT.wood,1.05,0,{normal:[0,1,0],...surface,top:true});
+        this.addPoly([corner(L,-H,-T),corner(L,-H,T),corner(L,H,T),corner(L,H,-T)],MAT.wood,.55,0,{normal:along,...surface,end:true});
+        return board;
+      });
+      // A small lantern caps the post and lights the boards beneath it.
+      this.box(s.x,top,s.z,.75,.8,.75,MAT.warm);
+      s.lantern={x:s.x,y:top+.4,z:s.z};
+      this.box(s.x,top+.8,s.z,.95,.14,.95,MAT.roof);
+      this.lights.push({x:s.x+along[0]*3,y:top-2,z:s.z+along[2]*3+1.5,r:12,power:.78,phase:5});
+    }
+
+    makeReader() {
+      // The walker who lives nearest the signpost strolls over now and then,
+      // stands in front of it with their back to us and reads the boards.
+      const s=this.sign,board=s.boards[1],walkers=this.folk.filter(fig=>fig.home);
+      const fig=walkers.sort((a,b)=>Math.hypot(a.home.x-s.x,a.home.z-s.z)-Math.hypot(b.home.x-s.x,b.home.z-s.z))[0];
+      if(!fig) return;
+      // Ordinary walkers keep well clear of the post and the bank, which
+      // leaves no open ground near the boards. On this errand the reader may
+      // step onto the dry bank and up to the post, standing just in front of
+      // it so a phone's narrow crop still shows them.
+      const world={height,walkable:(x,z)=>this.walkable(x,z,1.4,1.2)};
+      const want={x:s.x+board.out[0]*2.1,z:s.z+board.out[2]*2.1};
+      let spot=null;
+      for(let r=0;r<=3&&!spot;r+=.25) for(let a=0;a<TAU&&!spot;a+=.3) {
+        const x=want.x+Math.cos(a)*r,z=want.z+Math.sin(a)*r;
+        if(world.walkable(x,z)) spot={x,z};
+      }
+      if(spot) this.reader={fig,world,spot,face:Math.atan2(board.z-spot.z,board.x-spot.x),state:'away',wait:4,timer:0};
+    }
+    stepReader(dt) {
+      const r=this.reader,fig=r.fig;
+      if(r.state==='away') {
+        // Set out only from a standstill, along a clear straight line.
+        r.wait-=dt;
+        if(r.wait>0||fig.state!=='idle')return;
+        const length=Math.hypot(r.spot.x-fig.x,r.spot.z-fig.z);
+        let clear=true;
+        for(let s=.5;s<length&&clear;s+=.5)clear=r.world.walkable(mix(fig.x,r.spot.x,s/length),mix(fig.z,r.spot.z,s/length));
+        if(clear) {fig.target={...r.spot};fig.state='walk';r.state='going';}
+        else r.wait=3;
+      } else if(r.state==='going') {
+        if(fig.state!=='idle')return;
+        if(Math.hypot(fig.x-r.spot.x,fig.z-r.spot.z)<.6) {r.state='reading';r.timer=7+fig.random()*5;fig.timer=Infinity;}
+        else {r.state='away';r.wait=8;}
+      } else {
+        // Turn to the boards, read a while, then wander home.
+        const turn=r.face-fig.heading,delta=Math.atan2(Math.sin(turn),Math.cos(turn));
+        fig.heading+=clamp(delta,-1.8*dt,1.8*dt);
+        r.timer-=dt;
+        if(r.timer<=0) {r.state='away';r.wait=30+fig.random()*25;fig.timer=0;}
+      }
+    }
+    makeFlyWords() {
+      // Fireflies gather over the meadow west of the bend and hold the shape
+      // of the page's words. Each letter's firefly starts low in the grass
+      // nearby, drifts up when the page opens, then hovers with its own glow.
+      const a={x:5.3,z:31.62};a.y=height(a.x,a.z);
+      this.flyWords={anchor:a,lines:SIGN_BOARDS.map((spec,index)=>{
+        const font=spec.title?FLY_TITLE:FLY_TEXT,n=spec.text.length;
+        return {text:spec.text,title:!!spec.title,index,font,dy:FLY_ROWS[index],letters:[...spec.text].map((ch,i)=>{
+          const s=index*31+i;
+          let x=a.x+(hash(s,401)-.5)*26;const z=a.z+(hash(s,402)-.5)*18;
+          if(riverDistance(x,z)<1.5)x=riverX(z)-riverWidth(z)-3;
+          return {ch,ox:(i-(n-1)/2)*font.cw,from:{x,y:height(x,z)+.8,z},delay:.4+hash(s,403)*1.6,travel:1.8+hash(s,404)*1.3,phase:hash(s,405)*TAU};
+        })};
+      })};
+      // A faint glow on the grass beneath the words.
+      this.lights.push({x:a.x,y:a.y+2,z:a.z,r:10,power:.24,phase:9});
     }
 
     castleShadow(x,y,z,surface=null) {
@@ -455,12 +606,17 @@
       this.rows = Math.ceil(this.H / this.ch);
       this.n = this.cols * this.rows;
       this.gridX=Math.floor(((VIEW.width-this.W)/2+this.camera.x)/this.cw);
-      this.gridY=Math.floor(((VIEW.height-this.H)/2+this.camera.y)/this.ch);
+      // Portrait phones crop the scene's middle; nudge it down a little so
+      // the sky above the castle has some room.
+      const mobile=this.W<700&&this.H>this.W*1.3,lift=mobile?35:0;
+      this.skyLayout=SKY_LAYOUTS[mobile?'mobile':'desktop'];
+      this.gridY=Math.floor(((VIEW.height-this.H)/2+this.camera.y-lift)/this.ch);
       this.view={x:this.gridX*this.cw,y:this.gridY*this.ch};
-      const yaw = .52, pitch = .58;
+      const yaw = CAMERA.yaw, pitch = CAMERA.pitch;
       this.projection = { cy:Math.cos(yaw),sy:Math.sin(yaw),cp:Math.cos(pitch),sp:Math.sin(pitch),scale:VIEW.scale,originX:VIEW.originX-this.view.x,origin:VIEW.originY-this.view.y };
       this.makeAtlas();
       this.sampleWorld();
+      this.buildSky();
       // iOS keeps a replaced canvas's backing store until GC; zeroing it
       // hands the memory back now, so repeated resizes cannot pile up.
       if(this.staticCanvas) this.staticCanvas.width=this.staticCanvas.height=0;
@@ -470,27 +626,40 @@
       this.staticContext.setTransform(this.dpr,0,0,this.dpr,0,0);
       this.staticContext.imageSmoothingEnabled = false;
       this.staticKey = '';
-      this.measureZone();
+      this.placeSign();
       this.canvas.dataset.grid = `${this.cols}x${this.rows} cell=${this.cw.toFixed(2)}x${this.ch.toFixed(2)} dpr=${this.dpr}`;
       this.canvas.dataset.detail = this.detail;
       this.canvas.dataset.view = `crop=${this.view.x},${this.view.y} scale=${VIEW.scale} font=${this.font}`;
     }
     makeAtlas() {
-      for(const old of [this.atlas,this.actorAtlas,this.camperAtlas,this.ponyHeadAtlas]) if(old) old.canvas.width=old.canvas.height=0;
+      for(const old of [this.atlas,this.actorAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas]) if(old) old.canvas.width=old.canvas.height=0;
       this.atlas=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
       // Actors get a small, separate glyph sheet. Their font and spacing
       // stay fixed across viewports and terrain-detail settings.
-      this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],true);
-      this.camperAtlas=this.buildAtlas(CAMPER.font,CAMPER.cw,CAMPER.ch,['cloth','cream']);
-      this.ponyHeadAtlas=this.buildAtlas(ACTOR.font*PONY_HEAD.scale,ACTOR.cw*PONY_HEAD.scale,ACTOR.ch*PONY_HEAD.scale,['deer','cream'],true);
+      this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],600);
+      // Stick figures need only strokes and heads. Their font follows the
+      // projection scale, so a zoomed scene keeps the figures' proportions.
+      const folk=CAMPER.font*this.projection.scale/VIEW.scale,k=folk/CAMPER.font;
+      this.folkAtlas=this.buildAtlas(folk,CAMPER.cw*k,CAMPER.ch*k,['cloth','cream','canvas','lilac','dark'],0,Folk.glyphs);
+      this.folkMetrics=Folk.measure(`400 ${folk}px ${FONT}`);
+      this.ponyHeadAtlas=this.buildAtlas(ACTOR.font*PONY_HEAD.scale,ACTOR.cw*PONY_HEAD.scale,ACTOR.ch*PONY_HEAD.scale,['deer','cream'],600);
+      // Link lettering: lowercase only, heavier than the scene's glyphs.
+      // Firefly letters bake their glow into a padded cell.
+      if(this.linkStyle==='sign') {
+        this.signAtlas=this.buildAtlas(SIGN.font,SIGN.cw,SIGN.ch,['cream','ember'],700,SIGN_GLYPHS);
+        this.signTitleAtlas=this.buildAtlas(SIGN_TITLE.font,SIGN_TITLE.cw,SIGN_TITLE.ch,['canvas'],700,SIGN_GLYPHS);
+      } else {
+        this.flyAtlas=this.buildAtlas(FLY_TEXT.font,FLY_TEXT.cw+FLY_TEXT.pad,FLY_TEXT.ch+FLY_TEXT.pad,['fly'],700,SIGN_GLYPHS,5);
+        this.flyTitleAtlas=this.buildAtlas(FLY_TITLE.font,FLY_TITLE.cw+FLY_TITLE.pad,FLY_TITLE.ch+FLY_TITLE.pad,['fly'],700,SIGN_GLYPHS,4);
+      }
     }
-    buildAtlas(font,cw,ch,names,actor=false) {
+    buildAtlas(font,cw,ch,names,weight=0,chars=GLYPHS,glow=0) {
       const d = this.dpr;
       const aw=Math.ceil(cw*d),ah=Math.ceil(ch*d);
       // Color rows wrap into side-by-side bands so no edge passes 2048px.
       // One tall strip (12k+px) exceeds iOS Safari's canvas texture limit
       // and crashed the page there.
-      const rows=names.length*LEVELS*2,span=aw*GLYPHS.length;
+      const rows=names.length*LEVELS*2,span=aw*chars.length;
       const perBand=Math.max(1,Math.floor(2048/ah)),bands=Math.ceil(rows/perBand);
       const cv = document.createElement('canvas');
       cv.width = span * bands;
@@ -498,15 +667,16 @@
       const c = cv.getContext('2d');
       c.textAlign = 'center'; c.textBaseline = 'middle';
       for (let warmth = 0; warmth < 2; warmth++) for (let p = 0; p < names.length; p++) for (let l = 0; l < LEVELS; l++) {
-        c.font = `${actor?600:['stone','rock','star','moon','fire','ember'].includes(names[p])?700:400} ${font * d}px ${FONT}`;
+        c.font = `${weight||(['stone','rock','star','moon','fire','ember'].includes(names[p])?700:400)} ${font * d}px ${FONT}`;
         const rgb = COLORS[names[p]], b = .17 + l / (LEVELS - 1) * 1.03;
         const row = (warmth * names.length + p) * LEVELS + l;
         const ox=Math.floor(row/perBand)*span,oy=row%perBand*ah;
         const tint = warmth ? [1.32, .99, .57] : [1, 1, 1];
         c.fillStyle = `rgb(${rgb.map((v, k) => Math.round(clamp(v * b * tint[k], 0, 255))).join(',')})`;
-        for (let g = 1; g < GLYPHS.length; g++) c.fillText(GLYPHS[g],ox+g*aw+aw/2,oy+ah*.5);
+        if (glow) { c.shadowColor = c.fillStyle; c.shadowBlur = glow * d; }
+        for (let g = 1; g < chars.length; g++) c.fillText(chars[g],ox+g*aw+aw/2,oy+ah*.5);
       }
-      return {canvas:cv,aw,ah,cw,ch,span,perBand,names,palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
+      return {canvas:cv,aw,ah,cw,ch,span,perBand,names,index:Object.fromEntries([...chars].map((c,i)=>[c,i])),palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
     }
     blit(sheet,g,row,x,y,cw,ch) {
       const sx=Math.floor(row/sheet.perBand)*sheet.span+g*sheet.aw,sy=row%sheet.perBand*sheet.ah;
@@ -529,10 +699,109 @@
       this.ctx.globalAlpha=alpha;
       this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch);
     }
-    measureZone() {
-      const r = this.content.getBoundingClientRect();
-      this.zone = { x: r.left + scrollX + r.width / 2, y: r.top + scrollY + r.height / 2, w: r.width / 2 + 7, h: r.height / 2 + 5 };
-      this.staticKey = '';
+    placeSign() {
+      // The links are invisible hit areas laid over their projected boards
+      // or firefly words. Canvas pixels are page pixels (the canvas sits at
+      // the page origin). Each is padded toward a comfortable touch target;
+      // neighbours split the gap between them instead of overlapping.
+      const links=[...this.content.querySelectorAll('[data-board]')].map(link=>{
+        const index=+link.dataset.board;
+        let xs,ys;
+        if(this.linkStyle==='sign') {
+          const b=this.sign.boards[index],L=b.len/2,H=b.h/2,T=b.thick/2;
+          const corners=[[-L,-H],[L,-H],[L,H],[-L,H]].map(([u,v])=>this.project(b.x+b.along[0]*u+b.out[0]*T,b.y+v,b.z+b.along[2]*u+b.out[2]*T));
+          xs=corners.map(p=>p.x);ys=corners.map(p=>p.y);
+        } else {
+          const w=this.flyWords,line=w.lines[index],a=this.project(w.anchor.x,w.anchor.y,w.anchor.z),half=line.text.length*line.font.cw/2;
+          xs=[a.x-half,a.x+half];ys=[a.y+line.dy-line.font.ch/2,a.y+line.dy+line.font.ch/2+5];
+        }
+        return {link,x0:Math.min(...xs)-4,x1:Math.max(...xs)+4,y0:Math.min(...ys)-8,y1:Math.max(...ys)+8,top:Math.min(...ys),bottom:Math.max(...ys)};
+      }).sort((a,b)=>a.top-b.top);
+      for(let i=1;i<links.length;i++) {
+        const above=links[i-1],below=links[i];
+        if(above.y1>below.y0) above.y1=below.y0=(above.bottom+below.top)/2;
+      }
+      for(const r of links) Object.assign(r.link.style,{left:r.x0+'px',top:r.y0+'px',width:r.x1-r.x0+'px',height:r.y1-r.y0+'px'});
+    }
+    drawFlyWords() {
+      const w=this.flyWords,t=this.time,a=this.project(w.anchor.x,w.anchor.y,w.anchor.z);
+      for(const line of w.lines) {
+        const sheet=line.title?this.flyTitleAtlas:this.flyAtlas,n=line.letters.length;
+        const hover=line.index===this.signHover;
+        // The same idle glint as the boards: a swell of light walks across
+        // each link in turn, a cue that the words can be tapped.
+        const sweep=this.reduced?-99:fract(t/6.5+line.index*.5)*(n+22)-8;
+        let formed=1;
+        for(let i=0;i<n;i++) {
+          const letter=line.letters[i];
+          if(letter.ch===' ')continue;
+          const x=a.x+letter.ox,y=a.y+line.dy+Math.sin(t*1.3+letter.phase)*.8;
+          // Arrival: a lone firefly rises from the grass on a lazy curve and
+          // kindles into its letter as it settles.
+          const arrive=this.reduced?1:clamp((t-letter.delay)/letter.travel);
+          formed=Math.min(formed,arrive);
+          if(arrive<1) {
+            const from=this.project(letter.from.x,letter.from.y,letter.from.z),e=smooth(0,1,arrive),arc=Math.sin(arrive*Math.PI);
+            const fx=mix(from.x,x,e)+arc*Math.sin(letter.phase)*22,fy=mix(from.y,y,e)-arc*14;
+            this.glyph(GI[arrive<.6?'.':'*'],'fly',.95,fx,fy,false,smooth(0,.12,arrive)*(1-smooth(.8,1,arrive)));
+          }
+          const show=smooth(.72,1,arrive);
+          if(show<.02)continue;
+          // Each letter keeps its own firefly pulse, with a rare deeper dip.
+          const dip=Math.pow(Math.max(0,Math.sin(t*.29+letter.phase*7)),60)*.35;
+          const pulse=(.08*Math.sin(t*2.3+letter.phase*4)-dip)*(this.reduced?0:1);
+          const glint=Math.exp(-Math.pow(i-sweep,2)/3)*.28;
+          const b=line.title?.62+pulse*.6:hover?1.08:.9+pulse+glint;
+          this.glyph(sheet.index[letter.ch],'fly',b,x,y,hover,show,sheet);
+        }
+        if(line.title) continue;
+        // A dotted underline of tiny fireflies marks each word as a link.
+        const half=n*line.font.cw/2,uy=a.y+line.dy+line.font.ch/2+3;
+        for(let x=-half+2,j=0;x<=half-1;x+=4,j++) {
+          const twinkle=.5+.5*Math.sin(t*2.7+j*1.9+line.index*3);
+          this.glyph(GI['.'],'fly',hover?1:.75+twinkle*.25,a.x+x,uy,hover,formed*(hover?.95:.35+twinkle*.35));
+        }
+        // Hovered or focused: a few loose fireflies circle the word.
+        if(hover) for(let k=0;k<3;k++) {
+          const angle=t*1.6+k*TAU/3;
+          this.glyph(GI['*'],'fly',1,a.x+Math.cos(angle)*(half+8),a.y+line.dy+Math.sin(angle)*11,false,.6+.4*Math.sin(t*5+k));
+        }
+      }
+    }
+    drawSign() {
+      const t=this.time,q=this.projection,s=this.sign,mid=s.boards[1];
+      // A few fireflies keep the signpost company: three circle the lantern,
+      // the rest drift loosely around the boards, just in front of them.
+      for(let i=0;i<8;i++) {
+        let x,y,z,b;
+        if(i<3) {
+          const a=t*(.9+i*.25)+i*2.1;
+          x=s.lantern.x+Math.cos(a)*1.3;z=s.lantern.z+Math.sin(a)*1.3;y=s.lantern.y+.3+Math.sin(a*1.7)*.5;
+          b=.55+.4*Math.pow(.5+.5*Math.sin(t*2.2+i*2.6),2);
+        } else {
+          const u=Math.sin(t*(.13+hash(i,421)*.1)+i*1.9)*(mid.len*.62),v=Math.cos(t*(.11+hash(i,422)*.08)+i*2.7)*9.5;
+          x=mid.x+mid.along[0]*u+mid.out[0]*1.6;z=mid.z+mid.along[2]*u+mid.out[2]*1.6;y=mid.y+v;
+          b=Math.pow(Math.max(0,Math.sin(t*1.15+i*1.83)),3)*.9;
+        }
+        this.worldGlyph(i%3?'.':'*','fly',.95,x,y,z,b);
+      }
+      for(const board of this.sign.boards) {
+        const sheet=board.title?this.signTitleAtlas:this.signAtlas,text=board.text,n=text.length;
+        const hover=board.index===this.signHover;
+        // An idle glint walks across each link board in turn, hinting that
+        // the boards can be tapped where there is no hover.
+        const sweep=this.reduced?-99:fract(t/6.5+board.index*.5)*(n+22)-8;
+        for(let i=0;i<n;i++) {
+          if(text[i]===' ')continue;
+          const u=(i-(n-1)/2)*sheet.cw/q.scale,w=board.thick/2+.05;
+          const p=this.project(board.x+board.along[0]*u+board.out[0]*w,board.y,board.z+board.along[2]*u+board.out[2]*w);
+          if(!this.visible(p))continue;
+          if(board.title) {this.glyph(sheet.index[text[i]],'canvas',.80,p.x,p.y,true,1,sheet);continue;}
+          const glint=Math.exp(-Math.pow(i-sweep,2)/3);
+          this.glyph(sheet.index[text[i]],hover?'ember':'cream',hover?1:.86+glint*.30,p.x,p.y,hover,1,sheet);
+          this.glyph(sheet.index._,'ember',hover?.95:.52+glint*.30,p.x,p.y+1,false,1,sheet);
+        }
+      }
     }
 
     sampleWorld() {
@@ -547,6 +816,7 @@
       this.shadow = new Float32Array(n).fill(1);
       this.light = new Float32Array(n); this.lightIndex = new Uint8Array(n);
       this.dynamic = new Uint8Array(n);
+      this.signCell = new Int8Array(n).fill(-1);
       this.waterGrain=new Float32Array(n);this.waterPhase=new Float32Array(n);this.waterPhaseB=new Float32Array(n);
       this.waterCross=new Float32Array(n);this.waterDirection=new Uint8Array(n);
       this.waterEddy=new Float32Array(n);this.waterEddyAngle=new Float32Array(n);this.waterEddyRadius=new Float32Array(n);
@@ -641,17 +911,86 @@
           if (value > best) { best = value; index = l; }
         }
         this.light[k] = best; this.lightIndex[k] = index;
-        this.dynamic[k] = m===MAT.grass || m===MAT.water || m===MAT.warm || best>.05 ? 1 : 0;
+        this.dynamic[k] = m===MAT.grass || m===MAT.water || m===MAT.warm || best>.05 || this.signCell[k]>=0 ? 1 : 0;
       }
       for(const flower of this.flowers)flower.warm=this.light[flower.k];
-      this.stars = [];
-      for(let gy=Math.floor(this.view.y/40);gy<=Math.ceil((this.view.y+this.H)/40);gy++) for(let gx=Math.floor(this.view.x/48);gx<=Math.ceil((this.view.x+this.W)/48);gx++) {
-        const x=gx*48+hash(gx,gy,101)*48-this.view.x,y=gy*40+hash(gx,gy,102)*40-this.view.y;
-        if(x<0||x>=this.W||y<0||y>=this.H)continue;
-        const k = Math.floor(y / this.ch) * this.cols + Math.floor(x / this.cw);
-        if(this.material[k]===MAT.sky)this.stars.push({x,y,b:.35+hash(gx,gy,103)*.6,phase:hash(gx,gy,104)*TAU,g:hash(gx,gy,105)>.96?GI['+']:GI['.']});
+    }
+    milkyWay(vx,vy,out=this.bandOut) {
+      // s runs along the band, u across it. The band's centre wanders, its
+      // light clumps into star clouds, and a dark dust lane splits the core.
+      const m=this.skyLayout.band,dx=vx-m.x,dy=vy-m.y;
+      const s=dx*m.cos+dy*m.sin,u=-dx*m.sin+dy*m.cos-(noise(s*.004,0,401)-.5)*60;
+      const clump=smooth(.25,.85,noise(s*.02,u*.035,402)*.55+noise(s*.05,u*.08,403)*.3+noise(s*.11,u*.16,408)*.15);
+      const lane=Math.exp(-Math.pow((u-10-(noise(s*.007,3,404)-.5)*36)/(10+noise(s*.02,5,405)*14),2))*smooth(.32,.68,noise(s*.013,u*.02,406));
+      const core=Math.exp(-Math.pow(u/m.core,2)),halo=Math.exp(-Math.pow(u/m.width,2));
+      const dust=smooth(.55,.75,noise(s*.03,u*.05,407))*core*.6;
+      out.s=s;
+      out.core=core*(.3+clump*1.1)*(1-lane*.85)*(1-dust);
+      out.light=(core*.6+halo*.4)*(.2+clump*1.3)*(1-lane*.8)*(1-dust);
+      return out;
+    }
+    buildSky() {
+      const cols=this.cols,rows=this.rows,cw=this.cw,ch=this.ch,sky=k=>this.material[k]===MAT.sky;
+      // Keep the moon on screen, then raise it until its disc and a little
+      // margin sit entirely in open sky.
+      const moon=this.skyLayout.moon,r=moon.r;
+      let mx=Math.min(moon.x-this.view.x,this.W-r-26),my=Math.max(moon.y-this.view.y,r+16);
+      const clear=(x,y)=>{
+        for(let j=Math.floor((y-r-8)/ch);j<=Math.floor((y+r+8)/ch);j++) for(let i=Math.floor((x-r-6)/cw);i<=Math.floor((x+r+6)/cw);i++)
+          if(i>=0&&j>=0&&i<cols&&j<rows&&!sky(j*cols+i)) return false;
+        return true;
+      };
+      while(!clear(mx,my)&&my>r+12) my-=ch;
+      this.moon={x:mx,y:my,r};
+      // Shooting stars and satellites use a larger, bold sheet so a brief
+      // streak still reads at a glance.
+      if(this.meteorAtlas) this.meteorAtlas.canvas.width=this.meteorAtlas.canvas.height=0;
+      this.meteorAtlas=this.buildAtlas(9,5.5,9,['star','cream','ember'],700,' .+*@-/\\');
+      // The Milky Way's unresolved light is drawn as faint characters, never
+      // painted: dots thicken toward the core and the dust lanes are gaps.
+      // A sparse ring of dots haloes the moon. All of it is static, so it is
+      // baked once per resize with a soft glow round each character.
+      this.skyRows=0;
+      for(let k=0;k<cols*rows;k++) if(sky(k)) this.skyRows=Math.floor(k/cols)+1;
+      if(this.hazeCanvas) this.hazeCanvas.width=this.hazeCanvas.height=0;
+      const canvas=this.hazeCanvas=document.createElement('canvas');
+      canvas.width=Math.round(this.W*this.dpr);canvas.height=Math.max(1,Math.round(this.skyRows*ch*this.dpr));
+      const c=canvas.getContext('2d'),main=this.ctx;
+      c.setTransform(this.dpr,0,0,this.dpr,0,0);c.imageSmoothingEnabled=false;
+      this.ctx=c;
+      c.shadowColor='rgba(160,150,220,.6)';c.shadowBlur=3*this.dpr;
+      for(let j=0;j<this.skyRows;j++) for(let i=0;i<cols;i++) {
+        const k=j*cols+i,sx=(i+.5)*cw,sy=(j+.5)*ch,d=Math.hypot(sx-mx,sy-my);
+        if(!sky(k)||d<r+4) continue;
+        const gi=i+this.gridX,gj=j+this.gridY,pick=hash(gi,gj,420),tint=hash(gi,gj,421);
+        if(d<r+34) {
+          if(pick<Math.pow(1-(d-r-4)/30,2)*.45) this.glyph(GI['.'],'moon',.15,sx,sy);
+          continue;
+        }
+        const band=this.milkyWay(sx+this.view.x,sy+this.view.y),light=band.light;
+        if(light<.06||pick>smooth(.04,.85,light)*.95) continue;
+        const g=light>.7&&tint>.5?':':light>.4&&tint>.55?"'":tint>.85?'`':'.';
+        const p=band.core>.45&&tint<.35?'cream':light<.3&&tint>.6?'blue':'lilac';
+        this.glyph(GI[g],p,.16+light*.32+band.core*.14,sx,sy);
       }
-      this.moon={x:800-this.view.x,y:110-this.view.y,r:23};
+      c.shadowColor='rgba(227,234,207,.55)';c.shadowBlur=6*this.dpr;
+      this.drawMoon();
+      this.ctx=main;
+      // Stars are scattered on a scene-pixel grid so they hold still across
+      // viewports. The Milky Way packs in many more, mostly faint and lilac.
+      this.stars=[];
+      const step=9;
+      for(let gy=Math.floor(this.view.y/step);gy<=Math.ceil((this.view.y+this.H)/step);gy++) for(let gx=Math.floor(this.view.x/step);gx<=Math.ceil((this.view.x+this.W)/step);gx++) {
+        const vx=gx*step+hash(gx,gy,101)*step,vy=gy*step+hash(gx,gy,102)*step,x=vx-this.view.x,y=vy-this.view.y;
+        if(x<0||x>=this.W||y<0||y>=this.H||Math.hypot(x-mx,y-my)<r+6||!sky(Math.floor(y/ch)*cols+Math.floor(x/cw))) continue;
+        const band=this.milkyWay(vx,vy),pick=hash(gx,gy,103);
+        if(pick>.032+band.light*.6+band.core*.35) continue;
+        const inBand=pick>.032,mag=hash(gx,gy,104),tint=hash(gx,gy,105);
+        const b=inBand?.16+Math.pow(mag,3)*.6+band.core*.15:.25+Math.pow(mag,2.2)*.8;
+        const g=b>.85?'*':b>.62?'+':inBand&&hash(gx,gy,106)>.8?"'":'.';
+        const p=inBand?(tint<.45?'lilac':tint<.55?'cream':'star'):(tint<.1?'blue':tint<.17?'cream':'star');
+        this.stars.push({x,y,b,g:GI[g],p:PAL[p],phase:hash(gx,gy,107)*TAU,rate:.6+hash(gx,gy,108)*2.2,scint:hash(gx,gy,109)>.94,s:band.s,glow:band.light,band:inBand});
+      }
     }
     rasterPoly(poly) {
       const points = poly.points.map(p => ({ ...this.project(p[0],p[1],p[2]), wx: p[0], wy: p[1], wz: p[2] }));
@@ -723,12 +1062,20 @@
         else if(surface?.part==='bedroll')glyph=seed>.60?'=':'~';
         else if(surface?.part==='bridgePier') {glyph=joint?':':mortar?'-':'#';shade*=1.26;}
         else if(surface?.part==='bridgeWall')glyph=mortar?'-':joint?':':'=';
+        else if(surface?.part==='signPost') {glyph=nx||nz?(seed>.8?'#':'|'):'=';shade*=1.25;}
+        else if(surface?.part==='signBoard') {
+          // Grain rows frame an open band; the lettering is drawn into it.
+          const board=surface.board,u=(wx-board.x)*board.along[0]+(wz-board.z)*board.along[2],v=wy-board.y;
+          glyph=surface.top?(seed>.7?'=':'-'):surface.end||Math.abs(u)>board.len/2-.45?'|':Math.abs(v)<board.band?' ':seed>.9?'#':seed>.45?'=':seed>.15?'-':':';
+          shade*=1.45;
+        }
         if(m===MAT.stone&&surface?.kind==='round') {
           glyph=surface.part==='inside'?':':edge?'|':mortar?'-':joint?':':diffuse>.72?(seed<.18?'%':'#'):diffuse>.32?(seed<.22?'+':'='):'=';
         }
         shade*=(.95+seed*.06)*(mortar?.82:1)*(wy<6.5&&m===MAT.stone&&!surface?.bridge ? .80 : 1);
         if(m===MAT.stone) shade*=this.castleShadow(wx+nx*.09,wy+ny*.09+.03,wz+nz*.09,surface);
         this.material[k] = m; this.shade[k] = shade; this.glyphs[k] = GI[glyph]; this.wx[k] = wx; this.wy[k] = wy; this.wz[k] = wz; this.tags[k] = poly.tag; this.curved[k]=surface?.kind==='round'?1:0; this.shadow[k]=1;
+        this.signCell[k]=surface?.part==='signBoard'?surface.board.index:-1;
       }
     }
     rasterBarkSegment(a,b,wa,wb,shade) {
@@ -786,11 +1133,6 @@
         }
     }
 
-    zoneAlpha(x,y) {
-      if (this.content.hidden) return 1;
-      const z = this.zone, dx = Math.max(0,Math.abs(x-z.x)-z.w), dy = Math.max(0,Math.abs(y-z.y)-z.h);
-      return .14 + smooth(0,75,Math.hypot(dx,dy))*.86;
-    }
     visible(p,coverTerrain=false) {
       const i = Math.floor(p.x / this.cw), j = Math.floor(p.y / this.ch);
       if(i<0||i>=this.cols||j<0||j>=this.rows)return false;
@@ -802,7 +1144,7 @@
     worldGlyph(char, palette, b, x,y,z, alpha=1, offsetX=0, offsetY=0) {
       const p = this.project(x,y,z);
       if (!this.visible(p)) return;
-      this.glyph(GI[char],palette,b,p.x+offsetX,p.y+offsetY,false,alpha*this.zoneAlpha(p.x,p.y));
+      this.glyph(GI[char],palette,b,p.x+offsetX,p.y+offsetY,false,alpha);
     }
     worldStroke(a,b,palette,brightness) {
       const q=this.projection,vx=b[0]-a[0],vy=b[1]-a[1],vz=b[2]-a[2];
@@ -817,7 +1159,7 @@
     }
     sprite(lines, x,y,z, palette='cloth', brightness=.85, bob=0, options=null) {
       const p = this.project(x,y,z), width = Math.max(...lines.map(l => l.length));
-      const sheet=options?.camper?this.camperAtlas:options?.actor?this.actorAtlas:null,cw=sheet?sheet.cw:this.cw,ch=sheet?sheet.ch:this.ch;
+      const sheet=options?.actor?this.actorAtlas:null,cw=sheet?sheet.cw:this.cw,ch=sheet?sheet.ch:this.ch;
       const cell={x:0,y:0,d:0,cw,ch,sheet};
       const place=(i,j)=>{
         let dx=(i-(width-1)/2)*cw,dy=-(lines.length-1-j)*ch;
@@ -841,7 +1183,7 @@
           if(!mask[i]||mask[i]===' ')continue;
           const cell=place(i,j);
           if(!this.visible(cell,true))continue;
-          this.ctx.globalAlpha=this.zoneAlpha(cell.x,cell.y);
+          this.ctx.globalAlpha=1;
           this.ctx.fillRect(Math.round((cell.x-cell.cw/2-1)*this.dpr)/this.dpr,Math.round((cell.y-cell.ch/2-1)*this.dpr)/this.dpr,cell.cw+2,cell.ch+2);
         }
       }
@@ -855,75 +1197,109 @@
           const heat=clamp(.50+options.fireSide*(i-(width-1)/2)/Math.max(1,width-1));
           b*=.88+heat*.12;b+=heat*.05;warm=heat>.63;
         }
-        if (this.visible(cell,options?.opaque)) this.glyph(GI[char],color,b,cell.x,cell.y,warm,this.zoneAlpha(cell.x,cell.y),cell.sheet);
+        if (this.visible(cell,options?.opaque)) this.glyph(GI[char],color,b,cell.x,cell.y,warm,1,cell.sheet);
       }
     }
-    weatherAt(t) {
-      if (this.weather !== 'auto') return { rain: this.weather === 'storm' ? 1 : this.weather === 'rain' ? .56 : 0, cloud: this.weather === 'storm' ? .95 : this.weather === 'rain' ? .68 : .12 };
-      // A readable clear opening, then long gradual fronts. No random initial storm.
-      const front = smooth(28,60,t%190)*(1-smooth(113,166,t%190));
-      const wave = .62+.38*Math.sin(t*.018-1);
-      return { rain: front * (.30 + wave * .65), cloud: .16+front*.78 };
+    drawFigure(fig) {
+      // The dark keyline goes down before the strokes, so grass never runs
+      // into a limb and limbs never cut limbs.
+      const sheet=this.folkAtlas,f=this.fire,project=this.folkProject||(this.folkProject=(x,y,z)=>this.project(x,y,z));
+      const marks=Folk.marks(fig,project,this.folkMetrics,this.folkMarks||(this.folkMarks=[])),reach=Math.hypot(fig.x-f.x,fig.z-f.z);
+      for(const m of marks) if(m.t!=='line'&&this.visible(m,true)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet);
+      for(const m of marks) {
+        if(!this.visible(m,true))continue;
+        // Whatever reaches out past the body toward the fire catches its light.
+        const heat=clamp((reach-Math.hypot(m.wx-f.x,m.wz-f.z)+.1)/.7)*clamp(1.6-reach/5)*this.flicker;
+        if(m.t==='body')this.sheetGlyph(sheet.index[m.c],fig.palette,fig.brightness+heat*.16,m.x,m.y,heat>.36,1,sheet);
+        else this.sheetGlyph(sheet.index[m.c],m.t==='rod'?'canvas':m.t==='line'?'cloth':'cream',m.t==='rod'?.66:m.t==='line'?.40:.95,m.x,m.y,false,1,sheet);
+      }
     }
     update(dt) {
       const t = this.time += dt;
-      const weather = this.weatherAt(t);
-      this.rain = mix(this.rain, weather.rain, 1-Math.exp(-dt*.65));
-      this.cloud = mix(this.cloud, weather.cloud, 1-Math.exp(-dt*.35));
-      this.wind = .3 + Math.sin(t*.21)*.23 + this.rain*.65;
+      this.wind = .3 + Math.sin(t*.21)*.23;
       this.flicker = .82+Math.sin(t*9.1)*.09+Math.sin(t*17.7)*.06;
-      this.moonlight = .95-this.cloud*.40;
-      this.flash = Math.max(0,this.flash-dt*3.8);
-      if (t > this.nextLightning && this.rain > .8) { this.flash = 1; this.nextLightning = t+9+hash(Math.floor(t),48)*18; }
-      if (t >= this.nextMeteor) {
-        this.nextMeteor = t+18+hash(Math.floor(t),49)*29;
-        if(this.cloud<.52)this.meteors.push({x:VIEW.width*(.18+hash(Math.floor(t),50)*.5),y:VIEW.height*(.04+hash(Math.floor(t),51)*.10),age:0,life:1.15});
-      }
+      if(this.reader) this.stepReader(dt);
+      // The reader keeps the looser ground rules until back on open ground.
+      const reader=this.reader,errand=reader&&(reader.state!=='away'||!this.walkable(reader.fig.x,reader.fig.z));
+      for(const fig of this.folk)Folk.step(fig,dt,errand&&fig===reader.fig?reader.world:this.world);
+      if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
       for (const meteor of this.meteors) meteor.age += dt;
       this.meteors = this.meteors.filter(m=>m.age<m.life);
+      if (this.satellite) { this.satellite.age += dt; if (this.satellite.age >= this.satellite.life) { this.satellite = null; this.nextSatellite = t+40+Math.random()*40; } }
+      else if (t >= this.nextSatellite) {
+        // A slow pass across the upper sky; some catch the sun and flare once.
+        const top=Math.min(this.H,innerHeight),y0=top*(.06+Math.random()*.22),east=Math.random()<.5;
+        this.satellite = { x0:east?this.W+10:-10, x1:east?-10:this.W+10, y0, y1:y0+top*(Math.random()-.3)*.18, age:0, life:22+Math.random()*10, flare:Math.random()<.45?.3+Math.random()*.4:-1 };
+      }
       for (const r of this.ripples) r.age += dt;
       this.ripples = this.ripples.filter(r=>r.age<3.8);
       for (const s of this.sparks) s.age += dt;
       this.sparks = this.sparks.filter(s=>s.age<s.life);
       if (hash(Math.floor(t*60),97) < dt*8 && this.sparks.length<25) this.sparks.push({ age:0,life:1.5+hash(Math.floor(t*60),98)*1.7,dx:(hash(Math.floor(t*60),99)-.5)*1.6 });
-      this.canvas.dataset.weather = `${this.weather} rain=${this.rain.toFixed(2)} cloud=${this.cloud.toFixed(2)}`;
     }
-    drawSky() {
-      const t=this.time;
-      for (const star of this.stars) {
-        const cloud=smooth(.43,.73,noise((star.x+this.view.x)/VIEW.width*5+t*.017,(star.y+this.view.y)/VIEW.height*9,132))*this.cloud;
-        const b = (star.b*.85+.20)*(.88+Math.sin(t*.7+star.phase)*.12)*(1-cloud*.90)*(1-this.cloud*.45);
-        this.glyph(star.g,'star',b,star.x,star.y,false,this.zoneAlpha(star.x,star.y));
+    spawnMeteor() {
+      // Start somewhere in the visible upper sky and streak down and across,
+      // away from the nearer side. One in six is a slow, bright fireball.
+      const top=Math.min(this.H,innerHeight)*.5;
+      for(let tries=0;tries<16;tries++) {
+        const x=this.W*(.08+Math.random()*.84),y=8+top*Math.random();
+        if(this.material[Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw)]!==MAT.sky) continue;
+        const fireball=Math.random()<.16,side=x<this.W/2?1:-1,angle=.25+Math.random()*.45;
+        this.meteors.push({x,y,dx:Math.cos(angle)*side,dy:Math.sin(angle),speed:fireball?240:420+Math.random()*260,age:0,
+          life:fireball?1.9:.55+Math.random()*.5,length:fireball?30:9+Math.floor(Math.random()*12),fireball});
+        return;
       }
+    }
+    skyGlyph(g,p,b,x,y,alpha=1) {
+      const k=Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw),sheet=this.meteorAtlas;
+      if(x>=0&&y>=0&&x<this.W&&y<this.H&&this.material[k]===MAT.sky) this.glyph(sheet.index[g],p,b,x,y,false,alpha,sheet);
+    }
+    drawMoon() {
       const moon=this.moon, r=moon.r;
       for (let j=-Math.ceil(r/this.ch);j<=Math.ceil(r/this.ch);j++) for(let i=-Math.ceil(r/this.cw);i<=Math.ceil(r/this.cw);i++) {
         const dx=i*this.cw,dy=j*this.ch,rr=Math.hypot(dx,dy)/r;
         if(rr>1) continue;
         const crater=noise(i*.8+7,j*.8+9,144), lit=clamp(.95-rr*.25+(crater-.5)*.45);
         const glyph=rr>.83?'.:o'[Math.floor(hash(i,j,148)*3)]:'@O%o*'[Math.floor(crater*4.99)];
-        this.glyph(GI[glyph],'moon',lit*(1-this.cloud*.62),moon.x+dx,moon.y+dy);
+        this.glyph(GI[glyph],'moon',lit,moon.x+dx,moon.y+dy);
       }
-      // Wispy, sparse character clouds rather than opaque gray rectangles.
-      if(this.cloud>.18) for(let j=0;j<Math.min(this.rows,Math.ceil((VIEW.height*.31-this.view.y)/this.ch));j++) for(let i=((this.gridX%2)+2)%2;i<this.cols;i+=2) {
-        const k=j*this.cols+i;
-        if(this.material[k]!==MAT.sky) continue;
-        const n=noise((i+this.gridX)*.022+t*.018,(j+this.gridY)*.11,160),edge=smooth(.62,.82,n)*this.cloud;
-        if(edge<.07||this.seed[k]>.65) continue;
-        this.glyph(GI[this.seed[k]>.4?'-':'.'],'sky',.28+edge*.25,(i+.5)*this.cw,(j+.5)*this.ch,false,.6);
+    }
+    drawSky() {
+      const t=this.time,plain=this.sky==='plain';
+      for (const star of this.stars) {
+        if(plain&&star.band) continue;
+        const twinkle=star.scint?.55+Math.pow(.5+.5*Math.sin(t*star.rate*2.6+star.phase),3)*.75:.8+Math.sin(t*star.rate+star.phase)*.2;
+        // A slow swell of light travels up the Milky Way.
+        const shimmer=plain?1:1+star.glow*.45*Math.sin(star.s*.016-t*.55);
+        this.glyph(star.g,star.p,star.b*twinkle*shimmer,star.x,star.y);
       }
+      // The new sky bakes the moon into its glowing layer.
+      if(plain) this.drawMoon();
       for(const m of this.meteors) {
-        const head=m.age/m.life,x=m.x+head*VIEW.width*.16-this.view.x,y=m.y+head*VIEW.height*.07-this.view.y;
-        for(let i=0;i<18;i++) {
-          const sx=x-i*this.cw*1.1,sy=y-i*this.ch*.25;
-          const k=Math.floor(sy/this.ch)*this.cols+Math.floor(sx/this.cw);
-          if(sx<0||sy<0||sx>=this.W||sy>=this.H||this.material[k]!==MAT.sky) continue;
-          this.glyph(GI[i===0?'*':i<3?'+':'.'],'star',1-i/20,sx,sy,false,Math.sin(head*Math.PI)*(1-i/19));
+        const life=m.age/m.life,travel=m.speed*m.age,fade=smooth(0,.1,life)*(1-smooth(.62,1,life));
+        const x=m.x+m.dx*travel,y=m.y+m.dy*travel,spacing=4.5;
+        const streak=m.dy>.6?(m.dx>0?'\\':'/'):'-';
+        for(let i=0;i<m.length&&i*spacing<=travel;i++) {
+          const sx=x-m.dx*i*spacing,sy=y-m.dy*i*spacing,tail=1-i/m.length;
+          const g=i===0?(m.fireball?'@':'*'):i<3?(m.fireball?'*':'+'):i<m.length*.6?streak:'.';
+          const p=m.fireball?(i<4?'cream':i<14?'ember':'star'):'star';
+          this.skyGlyph(g,p,.55+tail*.65,sx,sy,fade*Math.sqrt(tail));
+          // The fireball's head burns with a small halo of sparks.
+          if(m.fireball&&i===0) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.skyGlyph('+','cream',.75,sx+ox*this.cw,sy+oy*this.ch*.7,fade*.55);
+          // Fireballs shed flickering sparks along their wake.
+          if(m.fireball&&i>3&&hash(i,Math.floor(t*24),77)>.72) this.skyGlyph('.','ember',.8,sx+(hash(i,Math.floor(t*24),78)-.5)*this.cw*3,sy+(hash(i,Math.floor(t*24),79)-.5)*this.ch*2,fade*tail);
         }
+      }
+      const sat=this.satellite;
+      if(sat&&!plain) {
+        const p=sat.age/sat.life,flare=sat.flare<0?0:Math.exp(-Math.pow((p-sat.flare)/.012,2));
+        const fade=smooth(0,.05,p)*(1-smooth(.95,1,p));
+        this.skyGlyph(flare>.5?'*':flare>.2?'+':'.','star',.62+flare*.5,mix(sat.x0,sat.x1,p),mix(sat.y0,sat.y1,p),fade);
       }
     }
     drawWorld(staticPass=false) {
       const t=this.time,cw=this.cw,ch=this.ch;
-      const lighting=this.moonlight+this.flash*.75;
+      const lighting=this.moonlight;
       const windTick=Math.floor(t*5);
       const lightFlickers=this.lights.map(l=>.83+Math.sin(t*8+l.phase)*.10+Math.sin(t*13+l.phase)*.06);
       for(let j=0;j<this.rows;j++) for(let i=0;i<this.cols;i++) {
@@ -941,7 +1317,7 @@
           }
           for(const ripple of this.ripples) {
             const dist=Math.hypot(this.wx[k]-ripple.x,this.wz[k]-ripple.z);
-            if(Math.abs(dist-ripple.age*11)<2) bend+=Math.sin(dist-ripple.age*11)*Math.exp(-ripple.age)*1.7;
+            if(Math.abs(dist-ripple.age*11)<2&&!ripple.speed) bend+=Math.sin(dist-ripple.age*11)*Math.exp(-ripple.age)*1.7;
           }
           g=GI[seed<.21?"',`"[(Math.floor(seed*12)+windTick%2)%3]:bend>.28?'/':bend<-.28?'\\':'|'];
           b+=gust*.023+warm*.43;
@@ -951,22 +1327,37 @@
         } else if(m===MAT.warm) {
           b=.74+Math.sin(t*1.3+this.tags[k])*.10;
         } else { b+=warm*.34; }
+        // A hovered or focused link board brightens under its lantern.
+        const lit=this.signCell[k]>0&&this.signCell[k]===this.signHover;
+        if(lit) b+=.24;
         if(m===MAT.stone) b*=1.12;
         if(m===MAT.rock) b*=1.10;
         // Atmospheric depth keeps the forest distant, foreground textured.
         b*=1-smooth(18,80,-this.wz[k])*.32;
-        this.glyph(g,p,b,x,y,m===MAT.water?false:warm>.15,this.zoneAlpha(x,y));
+        this.glyph(g,p,b,x,y,m===MAT.water?false:warm>.15||lit);
       }
     }
     waterSample(k,t,lighting,warm=0,out=this.waterOut) {
       const x=this.wx[k],z=this.wz[k],grain=this.waterGrain[k],phase=this.waterPhase[k],phaseB=this.waterPhaseB[k],seed=this.seed[k];
-      const cross=this.waterCross[k],travel=z-t*this.waterSpeed[k]*5;
-      const bend=noise(cross*2.5,travel*.04,314)-.5;
-      const ribbon=noise(cross*9.4+bend*2.1,travel*.11,315);
-      const breakup=noise(cross*5.5-2,travel*.27,316);
+      const cross=this.waterCross[k],run=this.waterSpeed[k]*6*FLOW_PERIOD;
+      // Two staggered layers each carry the current a bounded distance, then
+      // fade out and restart elsewhere while the other is fully visible.
+      // Advecting by t*speed alone sheared the lanes into specks as the page
+      // stayed open, since neighbouring cells drift at different speeds.
+      let ribbon=0,breakup=0,weight=0;
+      for(let layer=0;layer<2;layer++) {
+        const cycle=t/FLOW_PERIOD+layer*.5,age=fract(cycle),w=1-Math.abs(age*2-1);
+        const travel=z-(age-.5)*run+Math.floor(cycle)*41.3+layer*17.9;
+        const bend=noise(cross*2.5,travel*.04,314)-.5;
+        ribbon+=w*(noise(cross*9.4+bend*2.1,travel*.11,315)-.5);
+        breakup+=w*(noise(cross*5.5-2,travel*.27,316)-.5);
+        weight+=w*w;
+      }
+      // Renormalize so the blend keeps one layer's contrast and lane density.
+      weight=Math.sqrt(weight);ribbon=.5+ribbon/weight;breakup=.5+breakup/weight;
       const flow=smooth(.57,.82,ribbon)*smooth(.26,.70,breakup)*(1-this.waterBank[k]*.60);
       const pulse=.5+.5*Math.sin(phase*.53+t*.37);
-      const crest=Math.sin(phase+z*.43-t*.71)*.62+Math.sin(phaseB+x*.37+t*.23)*(.25+this.rain*.18);
+      const crest=Math.sin(phase+z*.43-t*.71)*.62+Math.sin(phaseB+x*.37+t*.23)*.25;
       let g=seed>.75&&grain>.36?GI['.']:0,p=PAL.water,b=.12+grain*.07,ring=0;
       // Warped noise gives irregular widths, gaps and lengths, rather than
       // equally spaced lanes. Advect it along the river's curved channel.
@@ -975,11 +1366,11 @@
       // Localized circular disturbances drift a little with the river.
       for(const ripple of this.ripples) {
         const rz=ripple.z+ripple.age*.8,rx=ripple.x+riverX(rz)-riverX(ripple.z);
-        const delta=Math.hypot(x-rx,z-rz)-ripple.age*9;
+        const delta=Math.hypot(x-rx,z-rz)-ripple.age*(ripple.speed||9);
         if(Math.abs(delta)<1.3)ring+=Math.cos(delta*2.6)*(1-Math.abs(delta)/1.3)*Math.exp(-ripple.age*.85);
       }
       const beamX=riverX(z)+riverWidth(z)*.18+Math.sin(phase+t*.17)*.35,beamWidth=1.9+smooth(-10,90,z)*2.0;
-      const moon=clamp(1-Math.abs(x-beamX)/beamWidth)*(1-this.cloud*.82);
+      const moon=clamp(1-Math.abs(x-beamX)/beamWidth);
       if(moon>.1&&crest>.46&&seed>.47) {p=PAL.moon;g=GI[seed>.72?'=':'-'];b=.21+moon*(.22+Math.pow(Math.max(0,crest),2)*.22);}
       const wake=this.waterWake[k];
       if(wake>.18&&breakup>.42) {p=PAL.water;g=breakup>.65?this.waterDirection[k]:GI[','];b=.29+wake*.25;}
@@ -990,12 +1381,11 @@
       if(this.waterBank[k]>.38&&seed>.72&&pulse>.53) {p=PAL.water;g=GI['.'];b=.24+this.waterBank[k]*.12;}
       if(Math.abs(ring)>.16) {p=PAL.water;g=GI[ring>.35?'o':'~'];b=.34+Math.abs(ring)*.37;}
       if(warm>.035&&g&&crest>-.08) {p=PAL.fire;b+=warm*(.16+pulse*.16);}
-      if(this.flash>.2&&seed>.7&&!g)g=GI['.'];
-      out.g=g;out.p=p;out.b=b*this.waterShadow[k]*lighting*(1-this.rain*.14)+this.flash*.35;
+      out.g=g;out.p=p;out.b=b*this.waterShadow[k]*lighting;
       return out;
     }
     drawStatic() {
-      const key=Math.round((this.moonlight+this.flash*.75)*18)+'/'+this.content.hidden;
+      const key=String(Math.round(this.moonlight*18));
       if(this.staticKey!==key) {
         const main=this.ctx;
         this.ctx=this.staticContext;
@@ -1063,7 +1453,7 @@
       // Flag attached to the tall rear tower, smoke from the keep chimney.
       const pole=this.project(...this.flag);
       for(let i=0;i<4;i++) this.worldGlyph('|','stone',.64,this.flag[0],this.flag[1]-1.32+i*.72,this.flag[2]);
-      this.glyph(GI['>'],'pink',.68,pole.x+this.cw*(1+Math.sin(t*2)*.18),pole.y-this.ch,false,this.zoneAlpha(pole.x,pole.y));
+      this.glyph(GI['>'],'pink',.68,pole.x+this.cw*(1+Math.sin(t*2)*.18),pole.y-this.ch);
       for(let i=0;i<9;i++) {
         const age=(t*.35+i/9)%1;
         this.worldGlyph(age<.5?':':'.','sky',.36,this.chimney[0]+age*3*this.wind,this.chimney[1]+age*5,this.chimney[2],1-age);
@@ -1073,7 +1463,7 @@
       for(let j=0;j<4;j++) for(let i=-1;i<=1;i++) {
         const flick=Math.sin(t*11+j*3+i*2),h=3+flick*.6-Math.abs(i);
         if(j>h) continue;
-        this.glyph(GI[j>2?"'":j>1?'^':'*'],j<2?'fire':'ember',.9,p.x+i*this.cw*.8+Math.sin(t*7+j)*1.7,p.y-j*this.ch,false,this.zoneAlpha(p.x,p.y));
+        this.glyph(GI[j>2?"'":j>1?'^':'*'],j<2?'fire':'ember',.9,p.x+i*this.cw*.8+Math.sin(t*7+j)*1.7,p.y-j*this.ch);
       }
       for(const spark of this.sparks) {
         const a=spark.age/spark.life;
@@ -1095,23 +1485,25 @@
         this.worldStroke([tent.x+side*2.25,tent.y+.9,tent.z+2.14],[tx,ty+.10,tz],'wood',.63);
         this.worldGlyph('x', 'wood',.68,tx,ty+.08,tz);
       }
-      // Each figure has its own dry ground anchor, including its feet.
-      const camper=camp.camper,friend=camp.friend;
-      this.sprite(SPRITES.camper,camper.x,camper.y,camper.z,'cloth',.91,0,{camper:true});
-      this.sprite(SPRITES.friend,friend.x,friend.y,friend.z,'cream',.80,0,{camper:true});
-      const dog=this.wildlife.dog,pony=this.wildlife.pony;
-      this.sprite(SPRITES.dog,dog.x,dog.y,dog.z,'deer',.76,0,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true});
-      const ponyX=pony.x+Math.sin(t*.075)*2;
-      this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,ponyX,height(ponyX,pony.z)+.12,pony.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true});
-      // Tiny mushrooms and a rabbit along the quieter western flower bank.
+      // Tiny mushrooms along the quieter western flower bank.
       for(let i=0;i<9;i++) {
         const x=-20-hash(i,171)*11,z=24+hash(i,172)*35;
         this.worldGlyph('o','cream',.61,x,height(x,z)+.35,z);
         this.worldGlyph('|','wood',.37,x,height(x,z)+.12,z);
       }
-      const rabbit=this.wildlife.rabbit;
-      const rabbitX=rabbit.x+Math.sin(t*.09)*.6;
-      this.sprite(SPRITES.rabbit,rabbitX,height(rabbitX,rabbit.z)+.12,rabbit.z,'cream',.68,0,{actor:true,eyePalette:'deer',opaque:true});
+      // Animals and people share one far-to-near pass, so whoever stands
+      // nearer covers the other; an animal's matte never erases a person.
+      const {dog,pony,rabbit}=this.wildlife;
+      const ponyX=pony.x+Math.sin(t*.075)*2,rabbitX=rabbit.x+Math.sin(t*.09)*.6;
+      const actors=[
+        {x:dog.x,y:dog.y,z:dog.z,draw:()=>this.sprite(SPRITES.dog,dog.x,dog.y,dog.z,'deer',.76,0,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true})},
+        {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true})},
+        {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,0,{actor:true,eyePalette:'deer',opaque:true})},
+        ...this.folk.map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
+      ];
+      for(const a of actors)a.d=this.project(a.x,a.y,a.z).d;
+      actors.sort((a,b)=>a.d-b.d);
+      for(const a of actors)a.draw(a);
       for(let i=0;i<28;i++) {
         let x=-31+hash(i,181)*81+Math.sin(t*.31+i*2)*2;
         let z=9+hash(i,182)*49+Math.sin(t*.23+i)*2;
@@ -1121,50 +1513,19 @@
         }
         if(riverDistance(x,z)<2) continue;
         const y=height(x,z)+.8+Math.sin(t*.47+i)*.6;
-        const blink=Math.pow(Math.max(0,Math.sin(t*1.15+i*1.83)),3)*(1-this.rain)*.9;
+        const blink=Math.pow(Math.max(0,Math.sin(t*1.15+i*1.83)),3)*.9;
         this.worldGlyph(i%4?'.':'*','fly',.95,x,y,z,blink);
-      }
-    }
-    drawRain() {
-      if(this.rain<.025) return;
-      const t=this.time,count=Math.floor(760*this.rain);
-      if(this.flash>.4) {
-        const origin=VIEW.width*(.69+hash(Math.floor(this.nextLightning),221)*.18)-this.view.x;
-        for(let i=0;i<13;i++) {
-          const x=origin+Math.sin(i*1.9+this.nextLightning)*this.cw*2,y=VIEW.height*.018+i*this.ch*.74-this.view.y;
-          const k=Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw);
-          if(x>=0&&x<this.W&&y>=0&&y<this.H&&this.material[k]===MAT.sky)this.glyph(GI[i%3?'|':'/'],'star',.98,x,y,false,this.flash);
-        }
-      }
-      for(let ty=Math.floor(this.view.y/VIEW.height);ty<=Math.floor((this.view.y+this.H)/VIEW.height);ty++) for(let tx=Math.floor(this.view.x/VIEW.width);tx<=Math.floor((this.view.x+this.W)/VIEW.width);tx++) for(let i=0;i<count;i++) {
-        const salt=Math.imul(tx,31)^Math.imul(ty,47),speed=240+hash(i,salt,202)*220;
-        const localY=(hash(i,salt,203)*VIEW.height+t*speed)%VIEW.height;
-        const y=ty*VIEW.height+localY-this.view.y;
-        const x=tx*VIEW.width+(hash(i,salt,204)*VIEW.width+t*(35+this.wind*65)+localY*.09)%VIEW.width-this.view.x;
-        if(x<0||x>=this.W||y<0||y>=this.H)continue;
-        const b=.26+hash(i,salt,205)*.30;
-        this.glyph(GI[this.wind>.6?'/':'|'],'rain',b,x,y,false,.36*this.zoneAlpha(x,y));
-        if(i%4===0) this.glyph(GI['.'],'rain',b*.7,x-this.cw*.25,y-this.ch,false,.22);
-      }
-      // Deterministic splash lifetimes: small rings on water, ticks on ground.
-      const tick=Math.floor(t*9);
-      for(let gy=Math.floor(this.view.y/48);gy<=Math.ceil((this.view.y+this.H)/48);gy++) for(let gx=Math.floor(this.view.x/64);gx<=Math.ceil((this.view.x+this.W)/64);gx++) {
-        if(hash(gx,gy,tick+212)>this.rain*.26)continue;
-        const x=gx*64+hash(gx,gy,tick+213)*64-this.view.x,y=gy*48+hash(gx,gy,tick+214)*48-this.view.y;
-        if(x<0||x>=this.W||y<0||y>=this.H)continue;
-        const k=Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw);
-        if(this.material[k]!==MAT.water&&this.material[k]!==MAT.grass&&this.material[k]!==MAT.path) continue;
-        const age=(t*9)%1;
-        this.glyph(GI[this.material[k]===MAT.water?(age>.45?'~':'o'):"'"],'rain',.65,x,y,false,(1-age)*.5*this.zoneAlpha(x,y));
       }
     }
     render(dt=0) {
       const started=performance.now();
       if(!this.paused&&!this.reduced) this.update(dt);
-      else if(!this.flicker) { this.flicker=.88;this.wind=.32;this.moonlight=.89; }
+      else if(!this.flicker) { this.flicker=.88;this.wind=.32; }
       const c=this.ctx;
       c.globalAlpha=1;c.fillStyle=BG;c.fillRect(0,0,this.W,this.H);
-      this.drawSky();this.drawStatic();this.drawWorld();this.drawMeadow();this.drawRain();
+      if(this.sky!=='plain'&&this.skyRows) c.drawImage(this.hazeCanvas,0,0,this.hazeCanvas.width/this.dpr,this.hazeCanvas.height/this.dpr);
+      this.drawSky();this.drawStatic();this.drawWorld();this.drawMeadow();
+      if(this.linkStyle==='sign') this.drawSign(); else this.drawFlyWords();
       c.globalAlpha=1;
       this.canvas.dataset.renderMs=(performance.now()-started).toFixed(1);
       this.canvas.dataset.ripples=String(this.ripples.length);
@@ -1178,8 +1539,9 @@
     dispose() {
       cancelAnimationFrame(this.raf);
       this.abort.abort();
-      this.resizeObserver.disconnect();
       this.canvas.remove();
+      if(this.hazeCanvas) this.hazeCanvas.width=this.hazeCanvas.height=0;
+      if(this.meteorAtlas) this.meteorAtlas.canvas.width=this.meteorAtlas.canvas.height=0;
       if(this.tools) this.tools.remove();
     }
   }
@@ -1190,20 +1552,17 @@
       .river-tools { position:fixed;z-index:3;bottom:max(18px,env(safe-area-inset-bottom));right:20px;display:flex;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100vw - 20px);gap:6px;align-items:center; }
       .river-tools button { font:11px ${FONT};color:#b8c7c2;background:#0b1520e8;border:1px solid #2a3a43;border-radius:4px;padding:8px 10px;cursor:pointer; }
       .river-tools button:hover,.river-tools button:focus-visible { color:#f0eddc;border-color:#809b9e;outline:0; }
-      :root[data-theme="riverkeep"] nav a:focus-visible { outline:1px solid #b8c7c2;outline-offset:5px; }
       @media(max-width:600px) { .river-tools { right:10px;bottom:12px;gap:4px; }.river-tools button {font-size:10px;padding:7px 8px;} }
-      @media(prefers-reduced-motion:reduce) { :root[data-theme="riverkeep"] #typed::after { animation:none; } }
     `;
     document.head.appendChild(style);
     if(new URLSearchParams(location.search).get('studio')!=='1') return;
     const tools=document.createElement('aside');tools.className='river-tools';tools.setAttribute('aria-label','Landscape preview');
-    const weather=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),text=document.createElement('button');
-    weather.textContent='Weather: Auto';detail.textContent='Detail: Fine';pause.textContent='Pause';text.textContent='Hide text';
-    const modes=['auto','clear','rain','storm'];
-    weather.addEventListener('click',()=>{
-      scene.weather=modes[(modes.indexOf(scene.weather)+1)%modes.length];
-      weather.textContent='Weather: '+scene.weather[0].toUpperCase()+scene.weather.slice(1);
-      if(scene.reduced||scene.paused) { const w=scene.weatherAt(scene.time);scene.rain=w.rain;scene.cloud=w.cloud;scene.moonlight=.95-w.cloud*.40;scene.render(); }
+    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button');
+    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';
+    sky.addEventListener('click',()=>{
+      scene.sky=scene.sky==='new'?'plain':'new';
+      sky.textContent='Sky: '+(scene.sky==='new'?'New':'Plain');
+      scene.render();
     });
     detail.setAttribute('aria-pressed','true');
     detail.addEventListener('click',()=>{
@@ -1215,9 +1574,7 @@
     pause.setAttribute('aria-pressed','false');
     if(scene.reduced) { pause.disabled=true;pause.textContent='Still'; }
     pause.addEventListener('click',()=>{ scene.paused=!scene.paused;pause.textContent=scene.paused?'Resume':'Pause';pause.setAttribute('aria-pressed',String(scene.paused)); });
-    text.setAttribute('aria-pressed','false');
-    text.addEventListener('click',()=>{scene.content.hidden=!scene.content.hidden;text.textContent=scene.content.hidden?'Show text':'Hide text';text.setAttribute('aria-pressed',String(scene.content.hidden));scene.render();});
-    tools.append(weather,detail,pause,text);document.body.appendChild(tools);scene.tools=tools;
+    tools.append(sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
   }
 
   window.__themes=window.__themes||{};
@@ -1231,10 +1588,17 @@
       const resize=()=>{ clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{scene.resize();scene.render();},140); };
       window.addEventListener('resize',resize,{signal});
       window.addEventListener('orientationchange',resize,{signal});
-      scene.resizeObserver=new ResizeObserver(()=>{scene.measureZone();if(scene.reduced) scene.render();});scene.resizeObserver.observe(content);
-      if(document.fonts) document.fonts.ready.then(()=>{scene.measureZone();if(scene.reduced)scene.render();});
+      // Hovering, pressing or focusing a link lights its board.
+      for(const link of content.querySelectorAll('[data-board]')) {
+        const set=value=>{scene.signHover=value;if(scene.reduced||scene.paused)scene.render();};
+        const board=+link.dataset.board;
+        link.addEventListener('pointerenter',()=>set(board),{signal});
+        link.addEventListener('pointerleave',()=>set(-1),{signal});
+        link.addEventListener('focus',()=>set(board),{signal});
+        link.addEventListener('blur',()=>set(-1),{signal});
+      }
       if(CSS.supports('-webkit-touch-callout','none')) {
-        const park=()=>{window.scrollTo(0,80);scene.measureZone();};park();
+        const park=()=>window.scrollTo(0,80);park();
         document.addEventListener('touchmove',e=>{if(!e.target.closest('.river-tools'))e.preventDefault();},{passive:false,signal});
         window.addEventListener('load',park,{signal});
         window.addEventListener('scroll',()=>{if(Math.abs(scrollY-80)>1)park();},{passive:true,signal});
