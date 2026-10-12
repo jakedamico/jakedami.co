@@ -80,8 +80,10 @@
     </nav>
   </main>
 
-  <script src="themes/folk.js"></script>
-  <script src="themes/riverkeep.js"></script>
+  <!-- Bump ?v= whenever either script changes. The two depend on each other,
+       and Safari would otherwise pair a fresh one with a stale cached copy. -->
+  <script src="themes/folk.js?v=2026-10-12"></script>
+  <script src="themes/riverkeep.js?v=2026-10-12"></script>
   <script>window.__themes.riverkeep.start(document.getElementById('sign'));</script>
 </body>
 </html>

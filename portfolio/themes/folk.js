@@ -115,7 +115,9 @@
 
   function step(fig, dt, world) {
     const random = fig.random;
-    if (fig.home) {
+    if (fig.route) {
+      follow(fig, dt, world);
+    } else if (fig.home) {
       if (fig.state === 'idle') {
         fig.timer -= dt;
         if (fig.timer <= 0) {
@@ -179,6 +181,26 @@
       rod.out = ease(clamp((k - .55) / .45));
       if (done) { rod.state = 'wait'; rod.timer = 7 + random() * 12; rod.out = 1; world.splash?.(rod.x, rod.z); }
     }
+  }
+
+  // Walk a set route of {x, z} points at an even pace, turning smoothly at
+  // each bend. The caller empties fig.route to stop and clears it to resume
+  // wandering; world.height decides where the feet land (ramps, decks).
+  function follow(fig, dt, world) {
+    const route = fig.route;
+    fig.speed += clamp((route.length ? fig.maxSpeed : 0) - fig.speed, -3 * dt, 1.6 * dt);
+    let move = route.length ? fig.speed * dt : 0;
+    while (move > 0 && route.length) {
+      const p = route[0], dx = p.x - fig.x, dz = p.z - fig.z, d = Math.hypot(dx, dz);
+      if (d <= move) { fig.x = p.x; fig.z = p.z; move -= d; route.shift(); continue; }
+      fig.x += dx / d * move; fig.z += dz / d * move; move = 0;
+    }
+    if (route.length) {
+      const turn = wrap(Math.atan2(route[0].z - fig.z, route[0].x - fig.x) - fig.heading);
+      fig.heading = wrap(fig.heading + clamp(turn, -3 * dt, 3 * dt));
+    }
+    fig.y = world.height(fig.x, fig.z) + fig.lift;
+    fig.phase = (fig.phase + fig.speed * dt / WALK.cycle * TAU) % TAU;
   }
 
   // A wander target inside the home circle, reachable in a straight line.

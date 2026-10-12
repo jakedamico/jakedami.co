@@ -92,7 +92,8 @@
   }
   function fbm(x, z) { return noise(x, z, 2) * .62 + noise(x * 2.1, z * 2.1, 6) * .26 + noise(x * 4.3, z * 4.3, 9) * .12; }
   const riverX = z => 8 + 10 * Math.sin((z + 14) * .037) + z * .045;
-  const riverWidth = z => 4.6 + smooth(-10, 65, z) * 12 + 3.6*Math.exp(-Math.pow((z+1)/11,2));
+  // The river stays slim in the foreground, leaving phones meadow to see.
+  const riverWidth = z => 4.2 + smooth(-10, 65, z) * 5.5 + 2.4*Math.exp(-Math.pow((z+1)/11,2));
   const riverDistance = (x, z) => Math.abs(x - riverX(z)) - riverWidth(z);
   function height(x, z) {
     const land = .8 + fbm(x * .055, z * .05) * 1.7;
@@ -101,12 +102,13 @@
     const bank = smooth(-.7, 2.9, riverDistance(x, z));
     return mix(-.75, land + plateau, bank);
   }
+  // The eastern trail's centre line, winding from the camp to the bridge.
+  const trailX = z => 27 + Math.sin((z - 2) * .085) * 6;
   function pathDistance(x, z) {
     // Gate path turns toward the bridge; the eastern path winds to camp.
     const gate = Math.hypot((x + 18) * .75, Math.max(0, -13 - z), Math.max(0, z + 1));
-    const west = Math.hypot(Math.max(0, -18 - x), Math.max(0, x - 4), (z + 1) * 1.2);
-    const trailX = 27 + Math.sin((z - 2) * .085) * 6;
-    const east = Math.hypot(x - trailX, Math.max(0, -2 - z)) * .8;
+    const west = Math.hypot(Math.max(0, -18 - x), Math.max(0, x), (z + 1) * 1.2);
+    const east = Math.hypot(x - trailX(z), Math.max(0, -2 - z)) * .8;
     return Math.min(gate, west, east);
   }
 
@@ -237,7 +239,9 @@
         {kind:'box',min:[-29.7,5,-30],max:[-28.3,11,-19]},
         {kind:'box',min:[-8.4,5,-29],max:[-7,12,-17]},
       ];
-      this.fire = { x:riverX(30)+riverWidth(30)+7.0, z:30 };
+      // The camp keeps its place in the frame; the slimmer river leaves it
+      // a wider strip of meadow down to the bank.
+      this.fire = { x:riverX(30)+18.2, z:30 };
       this.fire.y = height(this.fire.x, this.fire.z);
       // The page's signpost (DOM boards) stands in the meadow west of the
       // bend: inside a phone's crop, clear of the bridge and the camp.
@@ -306,56 +310,33 @@
       for(const detail of [...this.windows,...this.lights]) {const p=enlarge([detail.x,detail.y,detail.z]);detail.x=p[0];detail.y=p[1];detail.z=p[2];if(detail.r)detail.r*=1.20;}
       this.flag=enlarge([-27,23.4,-31]);
       this.chimney=enlarge([-17.2,22.8,-27.6]);
-      // A narrow walking bridge: three open stone arches, a modest path
-      // and light timber handrails without projecting corner platforms.
+      // A short footbridge: a level deck on two stone posts standing in the
+      // water, reached from each bank by a railed walking ramp.
       const bridgeStart=this.polygons.length;
-      const bx=riverX(-1),bz=-1,deck=7.2,half=1.35,start=bx-13.5,end=bx+13.5;
-      this.bridge={x:bx,z:bz,deck,half,start,end,piers:[bx-4.5,bx+4.5]};
-      const archSpring=1.0,archRadius=3.55,rise=4.45,ring=.90;
-      for (const z of [bz-half,bz+half]) {
-        for (let arch = 0; arch < 3; arch++) {
-          const cx=start+4.5+arch*9,face=z>bz?1.05:.42;
-          for (let i = 0; i < 20; i++) {
-            const a=i*Math.PI/20,b=(i+1)*Math.PI/20;
-            const inside=t=>[cx+Math.cos(t)*archRadius,archSpring+Math.sin(t)*rise,z];
-            const outside=t=>[cx+Math.cos(t)*(archRadius+ring),archSpring+Math.sin(t)*(rise+ring),z];
-            const ia=inside(a),ib=inside(b),oa=outside(a),ob=outside(b);
-            this.addPoly([oa,ob,[ob[0],deck,z],[oa[0],deck,z]],MAT.stone,face*.61,0,{part:'bridgeWall'});
-            this.addPoly([ia,ib,ob,oa],MAT.stone,face*(i%2?1.08:1.17),0,{part:'archRing',x:cx,base:archSpring,r:archRadius,rise});
-          }
-          this.box(cx,archSpring+rise-.03,z+(z>bz?.05:-.05),.64,.76,.25,MAT.stone);
-        }
+      const bx=riverX(-1),bz=-1,deck=5.4,half=1.35,span=7.6,run=6.4,start=bx-span,end=bx+span;
+      const foot=side=>{const x=bx+side*(span+run);return [x,height(x,bz)+.12];};
+      // Handrails are drawn as strokes (drawBridgeRails); thin geometry
+      // falls between the character cells at this distance.
+      this.bridge={x:bx,z:bz,deck,half,start,end,piers:[bx-3.1,bx+3.1],rail:[foot(-1),[start,deck+.25],[end,deck+.25],foot(1)]};
+      for(const x of this.bridge.piers) {
+        this.box(x,-.65,bz,1.6,deck-.15,half*2-.2,MAT.stone,{part:'bridgePier'});
+        this.box(x,-.30,bz,2.1,.45,half*2+.3,MAT.rock);
+        // A cutwater parts the current on the downstream face.
+        const tip=bz+half+.85;
+        this.addPoly([[x-.62,-.2,bz+half],[x,-.2,tip],[x,1.0,tip],[x-.62,1.0,bz+half]],MAT.rock,.51);
+        this.addPoly([[x,-.2,tip],[x+.62,-.2,bz+half],[x+.62,1.0,bz+half],[x,1.0,tip]],MAT.rock,.84);
+        this.addPoly([[x-.62,1.0,bz+half],[x,1.0,tip],[x+.62,1.0,bz+half]],MAT.rock,1.0);
       }
-      for(let arch=0;arch<3;arch++) {
-        const cx=start+4.5+arch*9;
-        for(let i=0;i<20;i++) {
-          const a=i*Math.PI/20,b=(i+1)*Math.PI/20;
-          const x1=cx+Math.cos(a)*archRadius,x2=cx+Math.cos(b)*archRadius,y1=archSpring+Math.sin(a)*rise,y2=archSpring+Math.sin(b)*rise;
-          this.addPoly([[x1,y1,bz+half],[x2,y2,bz+half],[x2,y2,bz-half],[x1,y1,bz-half]],MAT.stone,.19+.08*Math.sin(a),0,{part:'vault'});
-        }
+      this.box(bx,deck-.8,bz,span*2,.8,half*2,MAT.wood,{part:'bridgeBeam'});
+      this.box(bx,deck,bz,span*2+.1,.25,half*2,MAT.path,{part:'bridgeDeck'});
+      for(const side of [-1,1]) {
+        const top=bx+side*span,[low,lowY]=foot(side);
+        const base=Math.min(height(top,bz),deck)-.4;
+        this.addPoly([[top,deck+.25,bz-half],[low,lowY,bz-half],[low,lowY,bz+half],[top,deck+.25,bz+half]],MAT.path,.66,0,{part:'bridgeDeck'});
+        this.addPoly([[top,deck+.25,bz+half],[low,lowY,bz+half],[low,lowY-.5,bz+half],[top,base,bz+half]],MAT.stone,.62,0,{part:'bridgeWall'});
+        this.addPoly([[top,deck+.25,bz-half],[top,deck+.25,bz+half],[top,base,bz+half],[top,base,bz-half]],MAT.stone,.45,0,{part:'bridgeWall'});
       }
-      for(let i=0;i<=3;i++) {
-        const x=start+i*9;
-        this.box(x,-.65,bz,1.85,deck+.65,half*2,MAT.stone,{part:'bridgePier'});
-        this.box(x,-.30,bz,2.25,.45,half*2+.3,MAT.rock);
-        if(i===1||i===2) {
-          const tip=bz+half+1.05;
-          this.addPoly([[x-.9,-.2,bz+half],[x,-.2,tip],[x,1.25,tip],[x-.9,1.25,bz+half]],MAT.rock,.51);
-          this.addPoly([[x,-.2,tip],[x+.9,-.2,bz+half],[x+.9,1.25,bz+half],[x,1.25,tip]],MAT.rock,.84);
-          this.addPoly([[x-.9,1.25,bz+half],[x,1.25,tip],[x+.9,1.25,bz+half]],MAT.rock,1.0);
-        }
-      }
-      this.box(bx,deck,bz,27.1,.25,half*2,MAT.path,{part:'bridgeDeck'});
-      for(const z of [bz-half,bz+half]) {
-        this.box(bx,deck+1.24,z,27.0,.16,.17,MAT.wood,{part:'bridgeHandrail'});
-        for(let x=start+.35;x<end;x+=4.4)this.box(x,deck+.25,z,.15,1.1,.15,MAT.wood);
-      }
-      for(const [x,side] of [[start,-1],[end,1]]) {
-        const bank=x+side*4.5,bankY=height(bank,bz);
-        this.addPoly([[x,deck+.25,bz-half+.18],[bank,bankY+.12,bz-.75],[bank,bankY+.12,bz+.75],[x,deck+.25,bz+half-.18]],MAT.path,.60);
-        this.box(x,1.6,bz,2.05,deck-1.6,half*2);
-      }
-      for (const x of [start+3,end-3]) {
+      for (const x of [start+1,end-1]) {
         this.box(x,deck+.25,bz+half,.16,1.35,.16,MAT.wood);
         this.box(x,deck+1.60,bz+half,.44,.48,.40,MAT.warm);
         this.box(x,deck+2.08,bz+half,.54,.10,.50,MAT.roof);
@@ -424,6 +405,7 @@
         Folk.create({x:edge+1.4,z:fz,heading:Math.atan2(bob.z-fz,bob.x-edge-1.4),seed:31,palette:'cream',brightness:.80,rod:bob},this.world),
       ];
       if(this.linkStyle==='sign') this.makeReader();
+      this.makeTrip();
     }
 
     campDistance(x,z) {
@@ -535,6 +517,43 @@
         r.timer-=dt;
         if(r.timer<=0) {r.state='away';r.wait=30+fig.random()*25;fig.timer=0;}
       }
+    }
+    makeTrip() {
+      // The lilac walker by the eastern trail goes up to the castle now and
+      // then: down the trail, over the bridge and in at the gate. They stay
+      // inside about a minute, walk the same way home and linger a while.
+      const fig=this.folk.find(f=>f.home&&f.palette==='lilac');
+      if(!fig) return;
+      const b=this.bridge,[[westFoot],,,[eastFoot]]=b.rail;
+      const out=[...[9,5,1].map(z=>({x:trailX(z),z})),{x:eastFoot,z:b.z},{x:b.end,z:b.z},{x:b.start,z:b.z},{x:westFoot,z:b.z},
+        {x:-18,z:-1},{x:-18.3,z:-7},{x:-18.64,z:-12.9}];
+      const world={height:(x,z)=>this.walkHeight(x,z),walkable:()=>true};
+      this.trip={fig,out,world,rest:{x:fig.x,z:fig.z},state:'home',timer:5};
+    }
+    stepTrip(dt) {
+      const trip=this.trip,fig=trip.fig;
+      trip.timer-=dt;
+      if(trip.state==='home') {
+        // The route takes over from any stroll in progress.
+        if(trip.timer<=0) {fig.route=trip.out.map(p=>({...p}));trip.state='out';}
+      } else if(trip.state==='out') {
+        if(!fig.route.length) {fig.route=null;fig.hidden=true;fig.speed=0;trip.state='inside';trip.timer=55+Math.random()*15;}
+      } else if(trip.state==='inside') {
+        if(trip.timer<=0) {
+          fig.hidden=false;fig.heading=Math.PI/2;
+          fig.route=[...trip.out.slice(0,-1).reverse(),trip.rest].map(p=>({...p}));trip.state='back';
+        }
+      } else if(!fig.route.length) {
+        fig.route=null;fig.state='idle';fig.timer=2;trip.state='home';trip.timer=150+Math.random()*90;
+      }
+    }
+    // Where feet land: on the bridge's ramps and deck, else the ground.
+    walkHeight(x,z) {
+      const {z:bz,half,rail}=this.bridge;
+      if(Math.abs(z-bz)<half&&x>rail[0][0]&&x<rail[3][0]) {
+        for(let i=1;i<rail.length;i++) if(x<=rail[i][0]) return mix(rail[i-1][1],rail[i][1],(x-rail[i-1][0])/(rail[i][0]-rail[i-1][0]))-.12;
+      }
+      return height(x,z);
     }
     makeFlyWords() {
       // Fireflies gather over the meadow west of the bend and hold the shape
@@ -1058,16 +1077,8 @@
         const joint=fract(masonry*.9+(course%2)*.5)<.08;
         let glyph=m===MAT.dark?(seed<.6?'.':':'):m===MAT.warm?'*':m===MAT.roof?(seed<.5?'/':'='):m===MAT.wood?'|':mortar?'-':joint?':':seed<.12?'%':seed<.30?'#':seed<.44?'+':'=';
         if(m===MAT.bark)glyph=seed>.96?'o':seed>.82?':':seed>.45?'|':'#';
-        if(surface?.part==='archRing') {
-          const angle=Math.atan2((wy-surface.base)/surface.rise,(wx-surface.x)/surface.r);
-          const tx=-surface.r*Math.sin(angle),ty=surface.rise*Math.cos(angle);
-          const sx=this.projection.cy*tx,sy=this.projection.sp*this.projection.sy*tx-this.projection.cp*ty;
-          const slope=Math.abs(sx)<.001?100:sy/sx;
-          glyph=Math.abs(slope)>1.5?'|':Math.abs(slope)<.35?'=':slope>0?'\\':'/';
-          shade*=1.08;
-        } else if(surface?.part==='vault')glyph=seed>.8?'-':':';
-        else if(surface?.part==='bridgeDeck') {glyph=seed>.78?':':'.';shade*=.94;}
-        else if(surface?.part==='bridgeHandrail') {glyph='-';shade*=1.20;}
+        if(surface?.part==='bridgeDeck') {glyph=seed>.78?':':'.';shade*=.94;}
+        else if(surface?.part==='bridgeBeam')glyph=seed>.8?'-':'=';
         else if(surface?.part==='campLog')glyph=ny?'-':seed>.75?':':'=';
         else if(surface?.part==='tentCanvas')glyph=seed>.77?':':seed>.44?'/':'.';
         else if(surface?.part==='tentFront')glyph=seed>.82?'/':seed>.55?':':'.';
@@ -1169,6 +1180,22 @@
         this.worldGlyph(char,palette,brightness,mix(a[0],b[0],t),mix(a[1],b[1],t),mix(a[2],b[2],t));
       }
     }
+    drawBridgeRails() {
+      // Timber rails run up each ramp and along the deck, with posts at
+      // every bend and a few between. The far rail sits a little dimmer.
+      const {z,half,rail}=this.bridge,lift=1.25;
+      for(const [rz,b] of [[z-half,.56],[z+half,.74]]) {
+        for(let i=1;i<rail.length;i++) {
+          const [x0,y0]=rail[i-1],[x1,y1]=rail[i];
+          this.worldStroke([x0,y0+lift,rz],[x1,y1+lift,rz],'wood',b);
+          const posts=Math.max(1,Math.round(Math.abs(x1-x0)/3.2));
+          for(let p=i===1?0:1;p<=posts;p++) {
+            const x=mix(x0,x1,p/posts),y=mix(y0,y1,p/posts);
+            this.worldStroke([x,y,rz],[x,y+lift-.25,rz],'wood',b*.9);
+          }
+        }
+      }
+    }
     sprite(lines, x,y,z, palette='cloth', brightness=.85, bob=0, options=null) {
       const p = this.project(x,y,z), width = Math.max(...lines.map(l => l.length));
       const sheet=options?.actor?this.actorAtlas:null,cw=sheet?sheet.cw:this.cw,ch=sheet?sheet.ch:this.ch;
@@ -1233,7 +1260,9 @@
       if(this.reader) this.stepReader(dt);
       // The reader keeps the looser ground rules until back on open ground.
       const reader=this.reader,errand=reader&&(reader.state!=='away'||!this.walkable(reader.fig.x,reader.fig.z));
-      for(const fig of this.folk)Folk.step(fig,dt,errand&&fig===reader.fig?reader.world:this.world);
+      if(this.trip) this.stepTrip(dt);
+      const trip=this.trip,away=trip&&trip.state!=='home';
+      for(const fig of this.folk) if(!fig.hidden) Folk.step(fig,dt,errand&&fig===reader.fig?reader.world:away&&fig===trip.fig?trip.world:this.world);
       this.trampleGrass(dt);
       if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
       for (const meteor of this.meteors) meteor.age += dt;
@@ -1601,6 +1630,7 @@
         this.worldStroke([tent.x+side*2.25,tent.y+.9,tent.z+2.14],[tx,ty+.10,tz],'wood',.63);
         this.worldGlyph('x', 'wood',.68,tx,ty+.08,tz);
       }
+      this.drawBridgeRails();
       // Tiny mushrooms along the quieter western flower bank.
       for(let i=0;i<9;i++) {
         const x=-20-hash(i,171)*11,z=24+hash(i,172)*35;
@@ -1614,7 +1644,7 @@
         {x:dog.x,y:dog.y,z:dog.z,draw:()=>this.sprite(SPRITES.dog,dog.x,dog.y,dog.z,'deer',.76,0,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true})},
         {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true})},
         {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,0,{actor:true,eyePalette:'deer',opaque:true})},
-        ...this.folk.map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
+        ...this.folk.filter(fig=>!fig.hidden).map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
       ];
       for(const a of actors)a.d=this.project(a.x,a.y,a.z).d;
       actors.sort((a,b)=>a.d-b.d);
