@@ -14,6 +14,9 @@
   const BG = '#080f18';
   const ACTOR = {font:7.5,cw:4.75,ch:7.5};
   const CAMPER = {font:9.5,cw:5.9,ch:10};
+  const FISH = {font:9.5,cw:5.8,ch:9.5};
+  // Palette and brightness for the props a figure carries, by mark tone.
+  const FOLK_PROPS = {rod:['canvas',.66],line:['cloth',.40],bob:['cream',.95],scope:['cream',1],tripod:['canvas',.55],lens:['moon',1]};
   const Folk = window.__folk;
   const PONY_HEAD = {scale:.88,firstColumn:5,rows:3,pivotColumn:6,pivotRow:3};
   const CAMERA = {yaw:.52,pitch:.58};
@@ -24,9 +27,10 @@
   const SIGN_TITLE = {font:12,cw:7.4,ch:12};
   const SIGN_GLYPHS = ' abcdefghijklmnopqrstuvwxyz._';
   const SIGN_BOARDS = [
-    {text:'building stuff',title:true,len:17.8,h:5.7,y:18.3},
-    {text:'linkedin',len:16.7,h:6.7,y:10.9},
-    {text:'instagram',len:16.7,h:6.7,y:3.5},
+    {text:'building stuff',title:true,len:17.8,h:5.2,y:20.75},
+    {text:'linkedin',len:16.7,h:5.2,y:15.0},
+    {text:'github',len:16.7,h:5.2,y:9.25},
+    {text:'instagram',len:16.7,h:5.2,y:3.5},
   ];
   // Firefly lettering (?links=fireflies; the signpost is the default): the
   // same lines float over the meadow, each letter one glowing firefly.
@@ -34,9 +38,13 @@
   // screen offsets above the anchor on the ground.
   const FLY_TEXT = {font:12,cw:7.4,ch:12,pad:14};
   const FLY_TITLE = {font:9.5,cw:5.8,ch:10,pad:12};
-  const FLY_ROWS = [-68,-40,-12];
+  const FLY_ROWS = [-96,-68,-40,-12];
   const SPRITES = {
     dog:[' /\\   ','(o)__ ',' /##\\~',' | |  '],
+    // A ridge tent seen three-quarters: the front, with a lantern in its
+    // doorway, on the left and the roof running back to the right.
+    tent:['   ______','  /\\     \\',' /*.\\     \\','/_/\\_\\_____\\'],
+    tentMask:['   ______','  xxxxxxxx',' xxxxxxxxxx','xxxxxxxxxxxx'],
     // Redrawn compact pony inspired by https://ascii.co.uk/art/horse.
     // Closed outlines keep the muzzle readable as the head scales down.
     pony:['      /\\     ','     / o \\_  ',' ____/ ____) ','~\\##\\__/     ','  \\___/      ','  || ||      ','  /| |\\      '],
@@ -49,7 +57,7 @@
   const MAT = { sky: 0, grass: 1, water: 2, stone: 3, tree: 4, wood: 5, path: 6, rock: 7, roof: 8, dark: 9, warm: 10, shrub: 11, bark: 12, canvas: 13, earth: 14 };
   const COLORS = {
     sky: [56, 78, 99], grass: [97, 146, 86], water: [69, 111, 133],
-    stone: [193, 209, 217], tree: [61, 115, 94], wood: [119, 102, 74],
+    stone: [193, 209, 217], tree: [70, 132, 124], wood: [119, 102, 74],
     path: [125, 125, 101], rock: [92, 120, 128], roof: [112, 149, 166],
     dark: [24, 34, 44], warm: [255, 177, 76], star: [193, 213, 215],
     moon: [227, 234, 207], fire: [255, 150, 53], pink: [214, 154, 173],
@@ -127,6 +135,9 @@
       this.ripples = [];
       this.sparks = [];
       this.nextMeteor = 4;
+      this.fish = [];
+      this.drops = [];
+      this.nextLeap = 5;
       this.satellite = null;
       this.nextSatellite = 15;
       this.sky = 'new';
@@ -357,7 +368,7 @@
         const r=2.8+hash(i,25)*2.6;
         this.trees.push({ x, z, y: height(x, z), h: Math.max(r*2.65,7+hash(i,24)*7), r, seed: i + 160 });
       }
-      for(const [x,z,h,r,seed] of [[-27,12,11,3.25,400],[-25,39,12,3.8,401],[riverX(46)+riverWidth(46)+10,46,12,3.7,402],[riverX(5)+riverWidth(5)+11,5,11,3.2,403]]) {
+      for(const [x,z,h,r,seed] of [[-27,12,11,3.25,400],[-25,39,12,3.8,401],[riverX(46)+riverWidth(46)+10,46,12,3.7,402],[riverX(5)+riverWidth(5)+13.7,1,11,3.2,403]]) {
         this.trees.push({x,z,y:height(x,z),h,r,seed});
       }
       this.trees=this.trees.filter(tree=>{
@@ -368,11 +379,15 @@
       });
       // Low clusters follow the banks and woodland edges. Leave open ground
       // around the camp and paths, and keep the castle's silhouette clear.
+      // Any that would crowd the bridge's deck or ramps step back behind it.
+      const bridge=this.bridge,[[bridgeWest],,,[bridgeEast]]=bridge.rail;
       for(let i=0;i<46;i++) {
-        const z=-6+hash(i,260)*113,side=i%2?1:-1;
+        const side=i%2?1:-1,r=1.1+hash(i,262)*1.7;
+        let z=-6+hash(i,260)*113;
         const x=riverX(z)+side*(riverWidth(z)+2.8+hash(i,261)*8);
+        if(x>bridgeWest-r&&x<bridgeEast+r&&Math.abs(z-bridge.z)<bridge.half+r+2)z=bridge.z-bridge.half-r-4.5;
         if(pathDistance(x,z)<2.4||this.campDistance(x,z)<1.20||riverDistance(x,z)<1.5||Math.hypot(x-this.sign.x,z-this.sign.z)<5)continue;
-        this.shrubs.push({x,z,y:height(x,z),r:1.1+hash(i,262)*1.7,h:.8+hash(i,263)*1.1,seed:i+600});
+        this.shrubs.push({x,z,y:height(x,z),r,h:.8+hash(i,263)*1.1,seed:i+600});
       }
       for(const tree of this.trees) {
         if(tree.z<-25||tree.seed%4!==0||this.campDistance(tree.x+1,tree.z+.5)<1.20)continue;
@@ -394,21 +409,37 @@
       const camp=this.camp,f=this.fire,facing=p=>Math.atan2(f.z-p.z,f.x-p.x);
       // A small ring on the water where a bobber lands or a fish bites.
       const splash=(x,z)=>{this.ripples.push({x,z,age:0,speed:2.6});if(this.ripples.length>5)this.ripples.shift();};
-      this.world={height,walkable:(x,z)=>this.walkable(x,z),splash};
+      this.world={height,walkable:(x,z)=>this.walkable(x,z),splash,leap:(x,z)=>this.leap(x,z),release:(...a)=>this.release(...a)};
       // Someone fishing from the east bank upstream of the bridge.
       const fz=-20,edge=riverX(fz)+riverWidth(fz),bob={x:edge-2.4,z:fz-.5};
+      this.bobber=bob;
       this.folk=[
         Folk.create({...camp.camper,heading:facing(camp.camper),seed:3,palette:'cloth',brightness:.91,clips:['warm','warm2','warm','rest']},this.world),
-        Folk.create({...camp.friend,heading:facing(camp.friend),seed:8,palette:'cream',brightness:.80,clips:['warm2','rest','warm']},this.world),
+        Folk.create({...camp.friend,heading:Math.atan2(camp.toast.z-camp.friend.z,camp.toast.x-camp.friend.x),seed:8,palette:'cream',brightness:.80,toast:camp.toast},this.world),
         ...[[45,48,9,'canvas'],[34,13,6,'lilac'],[-12,46,8,'cloth']].map(([x,z,r,palette],i)=>
           Folk.create({x,z,heading:i*2.1,seed:20+i,palette,brightness:.78,speed:1.3+i*.12,home:{x,z,r}},this.world)),
         Folk.create({x:edge+1.4,z:fz,heading:Math.atan2(bob.z-fz,bob.x-edge-1.4),seed:31,palette:'cream',brightness:.80,rod:bob},this.world),
       ];
+      this.makeStargazer();
       if(this.linkStyle==='sign') this.makeReader();
       this.makeTrip();
     }
+    makeStargazer() {
+      // Someone out in the open meadow across from the keep, at a telescope
+      // aimed up toward screen right. They stand behind its eyepiece.
+      const along=[Math.cos(CAMERA.yaw),0,-Math.sin(CAMERA.yaw)],right=Math.atan2(along[2],along[0]);
+      const x=21.8,z=-15.1,sx=x+along[0]*2.4,sz=z+along[2]*2.4;
+      this.stargazer=Folk.create({x,y:height(x,z)+.12,z,heading:right,seed:42,palette:'cloth',brightness:.88,clips:['scope','scope','gaze'],
+        scope:{x:sx,y:height(sx,sz),z:sz,heading:right}},this.world);
+      this.folk.push(this.stargazer);
+    }
 
     campDistance(x,z) {
+      return Math.hypot((x-this.fire.x-3.6)/10.2,(z-this.fire.z+1.1)/7.2);
+    }
+    // The camp's bare ground is smaller than the camp itself, so meadow
+    // grass carries on behind the tent.
+    clearingDistance(x,z) {
       return Math.hypot((x-this.fire.x-2)/8.3,(z-this.fire.z+.4)/6.8);
     }
     // Open ground a walker may cross: dry, gentle, and clear of the keep,
@@ -425,22 +456,22 @@
     }
     makeCamp() {
       const f=this.fire,anchor=(dx,dz,lift=0)=>({x:f.x+dx,y:height(f.x+dx,f.z+dz)+lift,z:f.z+dz});
-      const tent=anchor(5.3,-5.0),woodpile=anchor(4.9,2.0),pack=anchor(7.4,-1.5);
-      this.camp={tent,woodpile,pack,camper:anchor(-2.7,2.0,.12),friend:anchor(3.7,1.8,.12)};
+      // `side` places by screen axes: `a` units to the right, `o` toward the
+      // viewer. The friend toasts low over the coals at the fire's right
+      // edge, clear of the flames, standing back far enough for the stick.
+      // The gear sits further right, out of the friend's way.
+      const side=(a,o,lift)=>anchor(Math.cos(CAMERA.yaw)*a+Math.sin(CAMERA.yaw)*o,-Math.sin(CAMERA.yaw)*a+Math.cos(CAMERA.yaw)*o,lift);
+      const tent=side(10,-1.6),woodpile=side(9.6,4.4),pack=side(12.6,3.0);
+      this.camp={tent,woodpile,pack,camper:anchor(-2.7,2.0,.12),friend:side(4.8,3.6,.12),toast:{...side(1.9,.3),y:f.y+1.0}};
       this.lights.push({...f,y:f.y+.8,r:13.0,power:1.55,phase:3});
       // Benches follow the ground rather than inheriting the fire's height.
       for(const [dx,dz,w,d] of [[-2.9,.8,2.8,.75],[3.9,.7,2.8,.75]]) {
         const log=anchor(dx,dz);
         this.box(log.x,log.y,log.z,w,.85,d,MAT.wood,{part:'campLog'});
       }
-      // A pitched canvas tent, open doorway and a little sleeping roll.
-      const {x,y,z}=tent,front=z+2.1,back=z-2.1,peak=y+3.6;
-      this.addPoly([[x-2.65,y,front],[x,peak,front],[x,peak,back],[x-2.65,y,back]],MAT.canvas,.65,0,{part:'tentCanvas'});
-      this.addPoly([[x,peak,front],[x+2.65,y,front],[x+2.65,y,back],[x,peak,back]],MAT.canvas,.98,0,{part:'tentCanvas'});
-      this.addPoly([[x-2.65,y,front+.025],[x+2.65,y,front+.025],[x,peak,front+.025]],MAT.canvas,.76,0,{part:'tentFront'});
-      this.addPoly([[x-1.05,y+.03,front+.065],[x+1.05,y+.03,front+.065],[x,y+2.55,front+.065]],MAT.dark,.20);
-      this.box(x,peak-.15,z,.16,.18,4.6,MAT.wood,{part:'campLog'});
-      this.box(x+.8,y+.03,z+.65,1.25,.22,1.8,MAT.canvas,{part:'bedroll'});
+      // The tent is drawn as a sprite (SPRITES.tent). Past the firelight,
+      // the lantern inside it lights the ground around.
+      this.lights.push({x:tent.x,y:tent.y+1.4,z:tent.z,r:8.5,power:1.15,phase:7});
       this.box(woodpile.x,woodpile.y,woodpile.z,2.4,.35,1.3,MAT.wood,{part:'campLog'});
       this.box(woodpile.x-.25,woodpile.y+.35,woodpile.z,1.85,.35,1.0,MAT.wood,{part:'campLog'});
       for(let i=0;i<9;i++) {
@@ -651,17 +682,17 @@
       this.canvas.dataset.view = `crop=${this.view.x},${this.view.y} scale=${VIEW.scale} font=${this.font}`;
     }
     makeAtlas() {
-      for(const old of [this.atlas,this.actorAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas]) if(old) old.canvas.width=old.canvas.height=0;
+      for(const old of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas]) if(old) old.canvas.width=old.canvas.height=0;
       this.atlas=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
       // Actors get a small, separate glyph sheet. Their font and spacing
       // stay fixed across viewports and terrain-detail settings.
       this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],600);
+      this.fishAtlas=this.buildAtlas(FISH.font,FISH.cw,FISH.ch,['moon','blue'],700,' <>');
       // Stick figures need only strokes and heads. Their font follows the
       // projection scale, so a zoomed scene keeps the figures' proportions.
       const folk=CAMPER.font*this.projection.scale/VIEW.scale,k=folk/CAMPER.font;
-      this.folkAtlas=this.buildAtlas(folk,CAMPER.cw*k,CAMPER.ch*k,['cloth','cream','canvas','lilac','dark'],0,Folk.glyphs);
-      this.folkMetrics=Folk.measure(`400 ${folk}px ${FONT}`);
-      this.ponyHeadAtlas=this.buildAtlas(ACTOR.font*PONY_HEAD.scale,ACTOR.cw*PONY_HEAD.scale,ACTOR.ch*PONY_HEAD.scale,['deer','cream'],600);
+      this.folkAtlas=this.buildAtlas(folk,CAMPER.cw*k,CAMPER.ch*k,['cloth','cream','canvas','lilac','dark','moon','ember','fire','deer'],0,Folk.glyphs);
+      this.folkMetrics=Folk.measure(`400 ${folk}px ${FONT}`);      this.ponyHeadAtlas=this.buildAtlas(ACTOR.font*PONY_HEAD.scale,ACTOR.cw*PONY_HEAD.scale,ACTOR.ch*PONY_HEAD.scale,['deer','cream'],600);
       // Link lettering: lowercase only, heavier than the scene's glyphs.
       // Firefly letters bake their glow into a padded cell.
       if(this.linkStyle==='sign') {
@@ -697,9 +728,14 @@
       }
       return {canvas:cv,aw,ah,cw,ch,span,perBand,names,index:Object.fromEntries([...chars].map((c,i)=>[c,i])),palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
     }
-    blit(sheet,g,row,x,y,cw,ch) {
+    blit(sheet,g,row,x,y,cw,ch,turn=0) {
       const sx=Math.floor(row/sheet.perBand)*sheet.span+g*sheet.aw,sy=row%sheet.perBand*sheet.ah;
-      this.ctx.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*this.dpr)/this.dpr,Math.round((y-ch/2)*this.dpr)/this.dpr,cw,ch);
+      if(!turn) {this.ctx.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*this.dpr)/this.dpr,Math.round((y-ch/2)*this.dpr)/this.dpr,cw,ch);return;}
+      // A turned glyph rotates about its cell's centre.
+      const c=this.ctx;
+      c.save();c.translate(x,y);c.rotate(turn);
+      c.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,-cw/2,-ch/2,cw,ch);
+      c.restore();
     }
     glyph(g, palette, brightness, x, y, warm = false, alpha = 1, sheet=null) {
       if(sheet) {this.sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet);return;}
@@ -710,13 +746,13 @@
       this.ctx.globalAlpha = alpha;
       this.blit(this.atlas,g,row,x,y,this.cw,this.ch);
     }
-    sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet) {
+    sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet,turn=0) {
       if(!g||alpha<.015||brightness<.025)return;
       const l=Math.round(clamp(brightness*1.18+.025)*(LEVELS-1));
       const p=sheet.palette[typeof palette==='string'?palette:PALETTE_NAMES[palette]];
       const row=(p+(warm?sheet.names.length:0))*LEVELS+l;
       this.ctx.globalAlpha=alpha;
-      this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch);
+      this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch,turn);
     }
     placeSign() {
       // The links are invisible hit areas laid over their projected boards
@@ -788,7 +824,7 @@
       }
     }
     drawSign() {
-      const t=this.time,q=this.projection,s=this.sign,mid=s.boards[1];
+      const t=this.time,q=this.projection,s=this.sign,mid=s.boards[s.boards.length>>1];
       // A few fireflies keep the signpost company: three circle the lantern,
       // the rest drift loosely around the boards, just in front of them.
       for(let i=0;i<8;i++) {
@@ -843,7 +879,7 @@
       this.waterPierDistance=new Float32Array(n).fill(1e3);this.waterPierRipple=new Float32Array(n);this.waterPierDirection=new Uint8Array(n);
       this.waterSpeed=new Float32Array(n);this.waterBank=new Float32Array(n);this.waterWake=new Float32Array(n);this.waterShadow=new Float32Array(n).fill(1);
       this.grassBlade=new Uint8Array(n);this.grassRest=new Float32Array(n);this.trample=this.trampleActive=null;
-      this.flowers = []; this.reeds = []; this.grassIndices = [];
+      this.flowers = []; this.reeds = []; this.grassIndices = []; this.waterIndices = [];
       for (let j = 0; j < this.rows; j++) for (let i = 0; i < this.cols; i++) {
         const k = j * this.cols + i, px = (i + .5) * this.cw, py = (j + .5) * this.ch;
         const p = this.groundAt(px, py);
@@ -854,7 +890,7 @@
         const bankDistance=riverDistance(p.x,p.z),water=bankDistance<0,wetBank=!water&&bankDistance<1.1&&p.y<3;
         const isPath = pathDistance(p.x, p.z) < 1.3;
         const slope = Math.hypot(height(p.x+.8,p.z)-height(p.x-.8,p.z),height(p.x,p.z+.8)-height(p.x,p.z-.8));
-        const clearing=!water&&bankDistance>1.2&&this.campDistance(p.x,p.z)<.96+noise(p.x*.25,p.z*.25,320)*.10;
+        const clearing=!water&&bankDistance>1.2&&this.clearingDistance(p.x,p.z)<.96+noise(p.x*.25,p.z*.25,320)*.10;
         const m=water?MAT.water:wetBank||slope>1.65?MAT.rock:clearing?MAT.earth:isPath?MAT.path:MAT.grass;
         this.material[k] = m;
         this.shade[k] = (m === MAT.grass ? .48 : m === MAT.rock ? .56 : .37) + fbm(p.x * .23, p.z * .19) * .25 + seed * .12;
@@ -873,6 +909,7 @@
         const m = this.material[k];
         if(m===MAT.water) {
           const x=this.wx[k],z=this.wz[k],cross=(x-riverX(z))/riverWidth(z),bridge=this.bridge;
+          this.waterIndices.push(k);
           this.waterGrain[k]=noise(x*.22,z*.14,311);
           this.waterPhase[k]=noise(x*.10,z*.13,312)*TAU;
           this.waterPhaseB[k]=noise(x*.23,z*.19,313)*TAU;
@@ -1080,8 +1117,6 @@
         if(surface?.part==='bridgeDeck') {glyph=seed>.78?':':'.';shade*=.94;}
         else if(surface?.part==='bridgeBeam')glyph=seed>.8?'-':'=';
         else if(surface?.part==='campLog')glyph=ny?'-':seed>.75?':':'=';
-        else if(surface?.part==='tentCanvas')glyph=seed>.77?':':seed>.44?'/':'.';
-        else if(surface?.part==='tentFront')glyph=seed>.82?'/':seed>.55?':':'.';
         else if(surface?.part==='bedroll')glyph=seed>.60?'=':'~';
         else if(surface?.part==='bridgePier') {glyph=joint?':':mortar?'-':'#';shade*=1.26;}
         else if(surface?.part==='bridgeWall')glyph=mortar?'-':joint?':':'=';
@@ -1144,8 +1179,12 @@
           const depths = this.depth;
           if (d < depths[k]) continue;
           depths[k] = d;
-          const shade=(lobe.shade+Math.max(0,dx*.22-dy*.30)+seed*.10)*lobe.far;
-          const glyphSet=material===MAT.shrub?'&%#o*+':'&%#*:+.';
+          // Moonlight from the upper right gives a lit shoulder and rim. The
+          // shaded side stays dense but dim: sparse characters there would
+          // line up down a tall tree's stacked layers into one blank strip.
+          const lit=clamp(.5+dx*.38-dy*.50),rim=rr>.55&&dy<.15&&dx>-.6?.14:0;
+          const shade=(lobe.shade-.06+lit*.42+rim+seed*.06)*lobe.far;
+          const glyphSet=material===MAT.shrub?(lit>.55?'&%o':'*+:'):(lit>.62?'@&%':lit>.38?'%#*':'#*%+');
           const g=GI[glyphSet[Math.floor(seed*glyphSet.length)]];
           const q=this.projection,v=dy*r*lobe.aspect,u=dx*r;
           this.material[k]=material;this.shade[k]=shade;this.glyphs[k]=g;
@@ -1216,14 +1255,16 @@
         // A silhouette mask can also clear interior spaces in outlined
         // heads and bodies. Paint all mattes before the letters so adjacent
         // cells cannot erase each other. Vegetation returns next frame.
+        // A '_' in the mask clears only the cell's lower half, so whatever
+        // stands behind a top edge still shows above it.
         this.ctx.fillStyle=BG;
         for(let j=0;j<lines.length;j++)for(let i=0;i<lines[j].length;i++) {
           const mask=options.mask?.[j]||lines[j];
           if(!mask[i]||mask[i]===' ')continue;
-          const cell=place(i,j);
+          const cell=place(i,j),low=mask[i]==='_'?cell.ch/2:0;
           if(!this.visible(cell,true))continue;
           this.ctx.globalAlpha=1;
-          this.ctx.fillRect(Math.round((cell.x-cell.cw/2-1)*this.dpr)/this.dpr,Math.round((cell.y-cell.ch/2-1)*this.dpr)/this.dpr,cell.cw+2,cell.ch+2);
+          this.ctx.fillRect(Math.round((cell.x-cell.cw/2-1)*this.dpr)/this.dpr,Math.round((cell.y-cell.ch/2-1+low)*this.dpr)/this.dpr,cell.cw+2,cell.ch+2-low);
         }
       }
       for (let j = 0; j < lines.length; j++) for (let i = 0; i < lines[j].length; i++) {
@@ -1232,6 +1273,7 @@
         const cell=place(i,j);
         let color=palette,b=brightness,warm=false;
         if(options?.eyePalette&&char==='o')color=options.eyePalette;
+        if(options?.charPalette?.[char])color=options.charPalette[char];
         if(options?.fireSide) {
           const heat=clamp(.50+options.fireSide*(i-(width-1)/2)/Math.max(1,width-1));
           b*=.88+heat*.12;b+=heat*.05;warm=heat>.63;
@@ -1244,13 +1286,53 @@
       // into a limb and limbs never cut limbs.
       const sheet=this.folkAtlas,f=this.fire,project=this.folkProject||(this.folkProject=(x,y,z)=>this.project(x,y,z));
       const marks=Folk.marks(fig,project,this.folkMetrics,this.folkMarks||(this.folkMarks=[])),reach=Math.hypot(fig.x-f.x,fig.z-f.z);
-      for(const m of marks) if(m.t!=='line'&&this.visible(m,true)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet);
+      for(const m of marks) if(m.t!=='line'&&this.visible(m,true)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet,m.r);
       for(const m of marks) {
         if(!this.visible(m,true))continue;
         // Whatever reaches out past the body toward the fire catches its light.
         const heat=clamp((reach-Math.hypot(m.wx-f.x,m.wz-f.z)+.1)/.7)*clamp(1.6-reach/5)*this.flicker;
         if(m.t==='body')this.sheetGlyph(sheet.index[m.c],fig.palette,fig.brightness+heat*.16,m.x,m.y,heat>.36,1,sheet);
-        else this.sheetGlyph(sheet.index[m.c],m.t==='rod'?'canvas':m.t==='line'?'cloth':'cream',m.t==='rod'?.66:m.t==='line'?.40:.95,m.x,m.y,false,1,sheet);
+        else if(m.t==='mallow') {
+          // White, then golden, then brown. Alight, a flame up to three
+          // glyphs tall stands off it; once out, it is a charred lump.
+          const s=fig.toast;
+          if(s.flame>0) {
+            this.sheetGlyph(sheet.index.o,'fire',.92*this.flicker,m.x,m.y,true,1,sheet);
+            const rows=s.flame*3;
+            for(let k=1;k<=3&&k<rows+1;k++)
+              this.glyph(GI[k<3?'^':"'"],k<2?'fire':'ember',.95*this.flicker,m.x+Math.sin(this.time*13+k*2)*1.4*k,m.y-this.ch*.7*k,false,clamp(rows-k+1));
+          } else this.sheetGlyph(sheet.index.o,s.done<.3?'moon':s.done<.65?'cream':s.done<1?'ember':'deer',s.done<1?.9:.58,m.x,m.y,false,1,sheet);
+        }
+        else if(m.t==='bob'&&fig.rod.fish) this.drawHooked(m);
+        else {const [palette,b]=FOLK_PROPS[m.t];this.sheetGlyph(sheet.index[m.c],palette,b,m.x,m.y,false,1,sheet,m.r);}
+      }
+      if(fig.toast) this.drawMishap(fig.toast,marks);
+    }
+    drawFire(t) {
+      // A dark keyline goes down first, so the flames stand off the
+      // firelit ground around them.
+      const f=this.fire,p=this.project(f.x,f.y,f.z),flames=[];
+      this.sprite([' . . ','(x=x)'],f.x,f.y+.05,f.z,'rock',.6);
+      for(let j=0;j<4;j++) for(let i=-1;i<=1;i++) {
+        const flick=Math.sin(t*11+j*3+i*2),h=3+flick*.6-Math.abs(i);
+        if(j>h) continue;
+        flames.push({g:GI[j>2?"'":j>1?'^':'*'],palette:j<2?'fire':'ember',x:p.x+i*this.cw*.8+Math.sin(t*7+j)*1.7,y:p.y-j*this.ch});
+      }
+      for(const fl of flames) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.glyph(fl.g,'dark',.3,fl.x+ox,fl.y+oy);
+      for(const fl of flames) this.glyph(fl.g,fl.palette,.9,fl.x,fl.y);
+    }
+    drawMishap(s,marks) {
+      // The marshmallow catching fire: puffs blow it out, and smoke curls
+      // off what's left.
+      const head=marks.find(m=>m.c==='o'&&m.t==='body'),mallow=marks.find(m=>m.t==='mallow');
+      if(!head||!mallow) return;
+      if(s.state==='blow') for(let i=0;i<2;i++) {
+        const k=(s.age*2.4+i/2)%1;
+        this.glyph(GI['~'],'stone',.75,mix(head.x,mallow.x,.15+k*.75),mix(head.y,mallow.y,.15+k*.75),false,Math.sin(k*Math.PI)*.85);
+      }
+      if(s.smoke>0) for(let i=0;i<5;i++) {
+        const age=(this.time*.6+i/5)%1;
+        this.worldGlyph(age<.35?'~':age<.7?':':'.','stone',.68,mallow.wx+Math.sin(age*6+i*2)*.35+age*this.wind,mallow.wy+.5+age*3.6,mallow.wz,Math.min(1,s.smoke*1.5)*Math.sin(age*Math.PI));
       }
     }
     update(dt) {
@@ -1273,6 +1355,21 @@
         const top=Math.min(this.H,innerHeight),y0=top*(.06+Math.random()*.22),east=Math.random()<.5;
         this.satellite = { x0:east?this.W+10:-10, x1:east?-10:this.W+10, y0, y1:y0+top*(Math.random()-.3)*.18, age:0, life:22+Math.random()*10, flare:Math.random()<.45?.3+Math.random()*.4:-1 };
       }
+      // Now and then a fish leaps clear of the river; once in a while a
+      // second one follows close behind.
+      if (t >= this.nextLeap) {
+        this.nextLeap = t+7+Math.random()*9;
+        const first=this.spawnFish();
+        if (first && Math.random()<.15) this.follow = { at:t+.35+Math.random()*.4, x:first.x+(Math.random()-.5)*3, z:first.z+(Math.random()-.5)*4 };
+      }
+      if (this.follow && t >= this.follow.at) { this.leap(this.follow.x,this.follow.z); this.follow = null; }
+      for (const f of this.fish) {
+        f.age += dt;
+        if (!f.landed && f.age >= f.life) { f.landed = true; const [x,y,z]=this.leapPoint(f,1); this.world.splash(x,z); this.spray(x,y,z,f.dx,f.dz); }
+      }
+      this.fish = this.fish.filter(f=>f.age<f.life*1.35);
+      for (const d of this.drops) { d.age += dt; d.vy -= 10*dt; d.x += d.vx*dt; d.y += d.vy*dt; d.z += d.vz*dt; }
+      this.drops = this.drops.filter(d=>d.y>0);
       for (const r of this.ripples) r.age += dt;
       this.ripples = this.ripples.filter(r=>r.age<3.8);
       for (const s of this.sparks) s.age += dt;
@@ -1367,6 +1464,97 @@
       this.trample[k]=push;this.trampleV[k]=0;
       if(!this.trampleOn[k]) {this.trampleOn[k]=1;this.trampleActive.push(k);}
     }
+    // A fish leaps from (x, z) toward the middle of the river. It crosses
+    // the current rather than running with it, since a leap along the river
+    // reads as a plain up-and-down bob from this camera. Returns the fish,
+    // or null when there is no water to land in.
+    leap(x,z) {
+      if(this.fish.length>=2||riverDistance(x,z)>-.5) return null;
+      const across=x-riverX(z),side=Math.abs(across)<riverWidth(z)*.3?(Math.random()<.5?1:-1):-Math.sign(across);
+      // Lean a little upstream; the current runs toward +z.
+      const slope=.37*Math.cos((z+14)*.037)+.045,n=Math.hypot(1,slope),tilt=.15+Math.random()*.35;
+      const dx=(side*Math.cos(tilt)-slope*Math.sin(tilt))/n,dz=(-side*slope*Math.cos(tilt)-Math.sin(tilt))/n;
+      const reach=.85+Math.random()*.25,len=[4.8,4,3.2].map(l=>l*reach).find(l=>riverDistance(x+dx*l,z+dz*l)<-.7);
+      if(!len) return null;
+      const y=Math.max(0,height(x,z)),fish={x,y,z,y1:y,dx,dz,len,h:2.8+Math.random()*1.2,age:0,life:.9+Math.random()*.25,landed:false};
+      this.fish.push(fish);
+      this.world.splash(x,z);
+      this.spray(x,y,z,-dx,-dz);
+      return fish;
+    }
+    // The angler's catch, swung off the hook at (x, y, z) to splash down
+    // at (tx, tz).
+    release(x,y,z,tx,tz) {
+      const len=Math.hypot(tx-x,tz-z)||1;
+      this.fish.push({x,y,z,y1:Math.max(0,height(tx,tz)),dx:(tx-x)/len,dz:(tz-z)/len,len,h:1.2,age:0,life:.75,landed:false,toss:true});
+    }
+    spawnFish() {
+      // Somewhere on the river in the visible part of the page, clear of
+      // the bridge and the angler's bobber, with room above for the arc. On
+      // iOS the canvas runs on under Safari's floating bottom bar and the
+      // home indicator, so the bottom of the viewport is off limits there.
+      const view=window.visualViewport,page=view?view.pageTop:scrollY,tall=view?Math.min(innerHeight,view.height):innerHeight;
+      const covered=CSS.supports('-webkit-touch-callout','none')?170:tall*.08;
+      const bob=this.bobber,water=this.waterIndices,top=page+Math.max(60,tall*.08),bottom=page+tall-covered;
+      for(let tries=0;tries<30&&water.length;tries++) {
+        const k=water[Math.floor(Math.random()*water.length)],y=(Math.floor(k/this.cols)+.5)*this.ch,x0=(k%this.cols+.5)*this.cw;
+        if(y<top||y>bottom||x0<this.W*.06||x0>this.W*.94) continue;
+        const x=this.wx[k],z=this.wz[k];
+        if(riverDistance(x,z)>-1.2||Math.abs(z-this.bridge.z)<4.5||Math.hypot(x-bob.x,z-bob.z)<6) continue;
+        const fish=this.leap(x,z);
+        if(fish) return fish;
+      }
+      return null;
+    }
+    leapPoint(f,s) {
+      return [f.x+f.dx*f.len*s,mix(f.y,f.y1,s)+f.h*4*s*(1-s),f.z+f.dz*f.len*s];
+    }
+    spray(x,y,z,dx,dz) {
+      // A few drops thrown up where the fish breaks the surface, kicked
+      // back the way it came from.
+      for(let i=0;i<4;i++) {
+        const a=Math.random()*TAU,r=.4+Math.random();
+        this.drops.push({x,y:y+.05,z,vx:Math.cos(a)*r+dx*.9,vy:3.5+Math.random()*2,vz:Math.sin(a)*r+dz*.9,age:0});
+      }
+    }
+    drawFish(f) {
+      // A ><> that stays nearly level: chevrons turned much past 30 degrees
+      // read as L and 7, so the body only tilts partway into the arc. Parts
+      // still short of the arc are underwater, so the fish comes out nose
+      // first and goes back in the same way. A tossed fish starts in the air.
+      const sheet=this.fishAtlas,s=f.age/f.life,gap=sheet.cw*.85;
+      const head=this.project(...this.leapPoint(f,s)),back=this.project(...this.leapPoint(f,s-.03));
+      const dx=head.x-back.x,dy=head.y-back.y,step=.03*gap/Math.max(.001,Math.hypot(dx,dy));
+      const face=dx<0?-1:1,tilt=clamp(Math.atan2(dy,Math.abs(dx)),-.5,.5),ux=face*Math.cos(tilt),uy=Math.sin(tilt);
+      const chars=face>0?'><>':'<><',glint=Math.exp(-Math.pow((s-.5)/.2,2)),parts=[];
+      for(let i=0;i<3;i++) {
+        const u=s-i*step;
+        if(u<0&&!f.toss||u>1) continue;
+        const p={x:head.x-ux*gap*i,y:head.y-uy*gap*i,d:head.d};
+        if(this.visible(p)) parts.push({p,g:sheet.index[chars[2-i]],palette:i===2?'blue':'moon'});
+      }
+      // Clear the water glyphs behind the body first, so it reads cleanly.
+      const c=this.ctx,m=sheet.cw*.9;
+      c.globalAlpha=1;c.fillStyle=BG;
+      for(const {p} of parts) c.fillRect(p.x-m/2,p.y-m/2,m,m);
+      for(const {p,g,palette} of parts) this.sheetGlyph(g,palette,.74+glint*.26,p.x,p.y,false,1,sheet,face*tilt);
+    }
+    drawHooked(m) {
+      // A fish on the line hangs nose up from the hook and thrashes, its
+      // tail swinging wider than its head.
+      const sheet=this.fishAtlas,gap=sheet.cw*.85,wag=Math.sin(this.time*15),hook=this.project(m.wx,m.wy,m.wz),parts=[];
+      let x=hook.x,y=hook.y-gap*.4;
+      for(let i=0;i<3;i++) {
+        const a=wag*.3*i;
+        x+=Math.sin(a)*gap;y+=Math.cos(a)*gap;
+        const p={x,y,d:hook.d};
+        if(this.visible(p,true)) parts.push({p,g:sheet.index['><>'[2-i]],palette:i===2?'blue':'moon',turn:-Math.PI/2-a});
+      }
+      const c=this.ctx,size=sheet.cw*.9;
+      c.globalAlpha=1;c.fillStyle=BG;
+      for(const {p} of parts) c.fillRect(p.x-size/2,p.y-size/2,size,size);
+      for(const {p,g,palette,turn} of parts) this.sheetGlyph(g,palette,.9,p.x,p.y,false,1,sheet,turn);
+    }
     spawnMeteor() {
       // Start somewhere in the visible upper sky and streak down and across,
       // away from the nearer side. One in six is a slow, bright fireball.
@@ -1377,6 +1565,10 @@
         const fireball=Math.random()<.16,side=x<this.W/2?1:-1,angle=.25+Math.random()*.45;
         this.meteors.push({x,y,dx:Math.cos(angle)*side,dy:Math.sin(angle),speed:fireball?240:420+Math.random()*260,age:0,
           life:fireball?1.9:.55+Math.random()*.5,length:fireball?30:9+Math.floor(Math.random()*12),fireball});
+        // The stargazer looks up from the eyepiece to point it out, ahead or
+        // back over a shoulder.
+        const fig=this.stargazer,seen=this.project(fig.x,fig.y,fig.z);
+        Folk.cue(fig,x>seen.x?'point':'pointBack',fireball?3.2:2.2,.35);
         return;
       }
     }
@@ -1463,7 +1655,8 @@
     // A blade leans away from whatever brushed it; a tuft only shows a firm push.
     grassGlyph(k,bend) {
       if(this.grassBlade[k]) return this.bladeGlyph(this.grassRest[k]+bend);
-      return Math.abs(bend)>.45?GI[bend>0?'/':'\\']:this.glyphs[k];
+      const g=this.glyphs[k];
+      return Math.abs(bend)>.45&&g?GI[bend>0?'/':'\\']:g;
     }
     drawTrampled() {
       // Unlit grass is baked into the static layer. A cell something has bent
@@ -1603,33 +1796,16 @@
         const age=(t*.35+i/9)%1;
         this.worldGlyph(age<.5?':':'.','sky',.36,this.chimney[0]+age*3*this.wind,this.chimney[1]+age*5,this.chimney[2],1-age);
       }
-      const f=this.fire,p=this.project(f.x,f.y,f.z);
-      this.sprite([' . . ','(x=x)'],f.x,f.y+.05,f.z,'rock',.6);
-      for(let j=0;j<4;j++) for(let i=-1;i<=1;i++) {
-        const flick=Math.sin(t*11+j*3+i*2),h=3+flick*.6-Math.abs(i);
-        if(j>h) continue;
-        this.glyph(GI[j>2?"'":j>1?'^':'*'],j<2?'fire':'ember',.9,p.x+i*this.cw*.8+Math.sin(t*7+j)*1.7,p.y-j*this.ch);
-      }
+      const f=this.fire;
+      this.drawFire(t);
       for(const spark of this.sparks) {
         const a=spark.age/spark.life;
         this.worldGlyph(a>.5?'.':"'",'ember',.9,f.x+spark.dx+this.wind*a*2,f.y+.8+a*4,f.z,1-a);
       }
-      for(let i=0;i<11;i++) {
-        const age=(t*.16+i/11)%1;
-        this.worldGlyph(age<.4?':':'.','sky',.47,f.x+age*4*this.wind+Math.sin(age*9)*.35,f.y+1.4+age*8,f.z,Math.sin(age*Math.PI)*.55);
-      }
       const camp=this.camp;
-      const tent=camp.tent,front=tent.z+2.16,peak=tent.y+3.6;
-      this.worldStroke([tent.x-2.65,tent.y,front],[tent.x,peak,front],'canvas',.87);
-      this.worldStroke([tent.x,peak,front],[tent.x+2.65,tent.y,front],'canvas',.96);
-      this.worldStroke([tent.x,peak,front],[tent.x,peak,tent.z-2.1],'canvas',.83);
+      this.sprite(SPRITES.tent,camp.tent.x,camp.tent.y+.1,camp.tent.z,'canvas',.9,0,{opaque:true,mask:SPRITES.tentMask,charPalette:{'*':'ember','.':'ember'}});
       this.sprite(['(__)','(==)'],camp.woodpile.x,camp.woodpile.y+.55,camp.woodpile.z,'bark',.77);
       this.sprite([' __','[##]','|__|'],camp.pack.x,camp.pack.y+.12,camp.pack.z,'cloth',.68);
-      for(const side of [-1,1]) {
-        const tx=camp.tent.x+side*3.45,tz=camp.tent.z+2.7,ty=height(tx,tz);
-        this.worldStroke([tent.x+side*2.25,tent.y+.9,tent.z+2.14],[tx,ty+.10,tz],'wood',.63);
-        this.worldGlyph('x', 'wood',.68,tx,ty+.08,tz);
-      }
       this.drawBridgeRails();
       // Tiny mushrooms along the quieter western flower bank.
       for(let i=0;i<9;i++) {
@@ -1645,10 +1821,12 @@
         {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true})},
         {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,0,{actor:true,eyePalette:'deer',opaque:true})},
         ...this.folk.filter(fig=>!fig.hidden).map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
+        ...this.fish.map(f=>{const [x,y,z]=this.leapPoint(f,Math.min(1,f.age/f.life));return {x,y,z,draw:()=>this.drawFish(f)};}),
       ];
       for(const a of actors)a.d=this.project(a.x,a.y,a.z).d;
       actors.sort((a,b)=>a.d-b.d);
       for(const a of actors)a.draw(a);
+      for(const d of this.drops) this.worldGlyph(d.vy>0?"'":'.','moon',.62,d.x,d.y,d.z,Math.min(1,d.y*2.5));
       for(let i=0;i<28;i++) {
         let x=-31+hash(i,181)*81+Math.sin(t*.31+i*2)*2;
         let z=9+hash(i,182)*49+Math.sin(t*.23+i)*2;
@@ -1674,6 +1852,7 @@
       c.globalAlpha=1;
       this.canvas.dataset.renderMs=(performance.now()-started).toFixed(1);
       this.canvas.dataset.ripples=String(this.ripples.length);
+      this.canvas.dataset.fish=String(this.fish.length);
       this.canvas.dataset.meteors=String(this.meteors.length);
     }
     tap(px,py) {
