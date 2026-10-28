@@ -38,6 +38,14 @@
     // Pointing up at the sky ahead, or back over a shoulder.
     point: { lean:-.10,aU:2.60, aL:0,  bU:-.10, bL:.10, aT:.08, aS:0,   bT:-.08, bS:0,   armSplay:.20, legSplay:.32 },
     pointBack:{lean:-.05,aU:3.75,aL:0, bU:-.10, bL:.10, aT:.08, aS:0,   bT:-.08, bS:0,   armSplay:.20, legSplay:.32 },
+    // Seated at the oars, facing the stern: reaching forward to the catch,
+    // hands raised a little to drop the blades in, and leaning back at the
+    // end of the pull, hands drawn in to the chest.
+    // The legs, out along the boat's floor, are hidden by its side.
+    rowReach:{ lean:.45, aU:1.55, aL:.05, bU:1.55, bL:.05, aT:1.45, aS:-1.35, bT:1.45, bS:-1.35, armSplay:.22, legSplay:.20 },
+    rowPull: { lean:-.35,aU:.40, aL:1.30, bU:.40, bL:1.30, aT:1.45, aS:-1.35, bT:1.45, bS:-1.35, armSplay:.30, legSplay:.20 },
+    // Both hands raised overhead, holding up a paper lantern to let go.
+    lift:  { lean:-.12,aU:2.80, aL:.12, bU:2.80, bL:.12, aT:.08, aS:0,   bT:-.08, bS:0,   armSplay:.32, legSplay:.32 },
     // Leaning back to watch the sky, arms loose.
     lookUp:{ lean:-.30,aU:.15, aL:.10, bU:-.15, bL:.10, aT:.10, aS:0,   bT:-.10, bS:0,   armSplay:.45, legSplay:.36 },
   };
@@ -66,6 +74,14 @@
     limbs:[Object.assign(['scopeEye','scopeLens'], { tone:'scope', char:'=' }),
       ...[0, 1, 2].map(i => Object.assign(['scopeMount','scopeFoot' + i], { tone:'tripod' }))],
   };
+  // A rower's oars: each pivots on a pin `pin` out to its side and `lock`
+  // above the hip, its handle in that side's hand, and reaches `blade`
+  // past the pin; on the recovery the blades lift `raise`. Given the
+  // water's height, an oar reaches as far as it takes to meet it (within
+  // `fit` times `blade`): at a fixed length the blade stopped short of the
+  // water through the whole drive (Jake, Oct 28 2026).
+  const OARS = { pin:.55, lock:.05, blade:1.5, raise:1.1, fit:[.7, 3],
+    limbs:[Object.assign(['handA','oarA'], { tone:'oar', turn:true }), Object.assign(['handB','oarB'], { tone:'oar', turn:true })] };
   const STROKES = ['-','/','|','\\'];
 
   function rng(seed) {
@@ -120,7 +136,7 @@
 
   // spec: {x, z, y?, heading, seed, palette, brightness, home?: {x, z, r},
   // clips?: [pose names], rod?: {x, z}, toast?: {x, y, z}, scope?: {x, y,
-  // z, heading}}. With a home the figure wanders; without one it stays put
+  // z, heading}, oars?: true}. With a home the figure wanders; without one it stays put
   // and drifts between its clips. A rod's x, z is where its bobber sits on
   // the water; a toast's x, y, z is the spot over the fire where the
   // marshmallow cooks; a scope's x, y, z is the ground under its tripod.
@@ -136,6 +152,10 @@
       rod: spec.rod ? { x: spec.rod.x, z: spec.rod.z, state: 'wait', timer: 5 + random() * 3, clock: 0, lift: ROD.lift, out: 1, dip: 0, fish: false, first: true } : null,
       toast: spec.toast ? { x: spec.toast.x, y: spec.toast.y, z: spec.toast.z, state: 'roast', timer: 5 + random() * 2, clock: 0, age: 0, raise: 0, done: .3, flame: 0, smoke: 0, has: true, len: 0, first: true } : null,
       scope: spec.scope || null,
+      // A rower's stroke, set by the scene: `k` from the catch (0) to the
+      // end of the pull (1), `lift` the blades out of the water, `hide` with
+      // the oars shipped out of sight, `water` the height the blades dip to.
+      oars: spec.oars ? { k: 0, lift: 0, hide: false, water: null } : null,
     };
     if (fig.rod) fig.clips = ['fish'];
     if (fig.toast) fig.clips = ['roast'];
@@ -378,6 +398,7 @@
     // Arms follow the rod as it lifts and swings.
     if (fig.rod) { const raise = (fig.rod.lift - ROD.lift) * .7; p.aU += raise; p.bU += raise; }
     if (fig.toast) p.aU += fig.toast.raise * .6;
+    if (fig.oars) blend(POSES.rowReach, POSES.rowPull, fig.oars.k, p);
     const w = clamp(fig.speed / Math.max(.01, fig.maxSpeed * .6));
     if (w > 0) {
       const s = Math.sin(fig.phase), c = Math.cos(fig.phase);
@@ -455,6 +476,18 @@
       out.stickTip = add(h, d, toast.len);
       out.mallow = add(h, d, toast.len - .2);
     }
+    const oars = fig.oars;
+    if (oars && !oars.hide) {
+      // Each oar runs from its hand through its pin and on to the blade, so
+      // the blade swings the opposite way to the hands.
+      for (const [s, hand, name] of [[1, out.handA, 'oarA'], [-1, out.handB, 'oarB']]) {
+        const pin = [hip[0] + sx * s * OARS.pin, hip[1] + OARS.lock, hip[2] + sz * s * OARS.pin];
+        const d = [pin[0] - hand[0], pin[1] - hand[1], pin[2] - hand[2]], n = Math.hypot(d[0], d[1], d[2]) || 1;
+        const down = -d[1] / n, length = oars.water != null && down > .05 ? clamp((pin[1] - oars.water) / down, OARS.blade * OARS.fit[0], OARS.blade * OARS.fit[1]) : OARS.blade;
+        out[name] = add(pin, [d[0] / n, d[1] / n, d[2] / n], length);
+        out[name][1] += oars.lift * OARS.raise;
+      }
+    }
     const scope = fig.scope;
     if (scope) {
       const c = Math.cos(scope.heading), s = Math.sin(scope.heading);
@@ -470,7 +503,7 @@
   // The glyphs that draw a figure: {c, t, x, y, d, wx, wy, wz, r?}, where x, y
   // is the draw point that lands the glyph's ink on the bone, r (if any) the
   // angle to turn the glyph by about that point, and t its tone:
-  // body, rod, line, bob, mallow, scope, tripod or lens. Consecutive bones
+  // body, rod, line, bob, mallow, scope, tripod, lens or oar. Consecutive bones
   // that want the same stroke merge into one run before spacing, so a
   // straight limb reads as one line rather than a dotted one.
   function marks(fig, project, metrics, out = []) {
@@ -478,7 +511,7 @@
     const j = joints(fig), screen = {};
     for (const name in j) screen[name] = project(j[name][0], j[name][1], j[name][2]);
     let id = 0;
-    for (const limb of fig.rod ? [...LIMBS, ...ROD.limbs] : fig.toast ? [...LIMBS, ...STICK.limbs] : fig.scope ? [...LIMBS, ...SCOPE.limbs] : LIMBS) {
+    for (const limb of fig.rod ? [...LIMBS, ...ROD.limbs] : fig.toast ? [...LIMBS, ...STICK.limbs] : fig.scope ? [...LIMBS, ...SCOPE.limbs] : fig.oars && !fig.oars.hide ? [...LIMBS, ...OARS.limbs] : LIMBS) {
       const tone = limb.tone || 'body';
       if (limb.char) {
         // A limb that names its own glyph is set like type along its length:

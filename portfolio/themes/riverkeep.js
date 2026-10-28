@@ -17,7 +17,7 @@
   const CAMPER = {font:9.5,cw:5.9,ch:10};
   const FISH = {font:9.5,cw:5.8,ch:9.5};
   // Palette and brightness for the props a figure carries, by mark tone.
-  const FOLK_PROPS = {rod:['canvas',.66],line:['cloth',.40],bob:['cream',.95],scope:['cream',1],tripod:['canvas',.55],lens:['moon',1]};
+  const FOLK_PROPS = {oar:['deer',.78],rod:['canvas',.66],line:['cloth',.40],bob:['cream',.95],scope:['cream',1],tripod:['canvas',.55],lens:['moon',1]};
   const Folk = window.__folk;
   const PONY_HEAD = {scale:.88,firstColumn:5,rows:3,pivotColumn:6,pivotRow:3};
   // A tapped dog spins on the spot: `hops` bounds over `spin` seconds, `lift`
@@ -30,6 +30,43 @@
   // building to `peak` meteors a second and easing off; onlookers watch
   // until `watch` seconds in.
   const SHOWER = {life:26,peak:3,watch:20,first:[25,40],gap:[240,420]};
+  // Now and then the campers let paper lanterns go: `count` of them, each
+  // lit and held at the camp for `hold` seconds, let go `gap` seconds
+  // apart, rising `rise` units a second with the wind and gone after
+  // `life`. The first comes `first` seconds after the scene arrives, later
+  // ones `every` apart; onlookers watch for `watch` seconds. A lantern is
+  // drawn on its own sheet with a baked glow (`pad`, `glow`), so a far one
+  // still reads as a light rather than a letter.
+  // Off since Oct 28 2026 (Jake did not like them); `on` brings them back,
+  // and ?studio=1's Lanterns button still lets a release go.
+  const LANTERNS = {on:false,count:[4,7],hold:1.8,gap:[.9,2.2],rise:1.35,life:60,first:[70,100],every:[300,480],watch:16,
+    font:8,cw:4.9,ch:6.6,pad:10,glow:3};
+  // A rowboat comes out on the river now and then, a lantern hung at its
+  // bow and someone at the oars taking a lazy stroke every `stroke`
+  // seconds: in from the bottom of the screen `up` units a second, a rest
+  // below the bridge, `turn` seconds coming about, and back down at
+  // `down`. The first sets out as soon as the scene arrives (`first`
+  // seconds; Jake wanted it there on the way down to the keep), later ones
+  // `every` seconds after the last has left. `lane` is where it sits across
+  // the river (-1 the west bank, 1 the east); `out` is how far past the
+  // screen's edge, in pixels, its middle starts, half its length and a
+  // little more.
+  const BOAT = {up:1.15,down:1.35,turn:1.6,first:[.8,1.4],every:[55,65],lane:-.28,stroke:2.6,out:36};
+  // The lantern and boat drawings, row by row, with a tone per cell (see
+  // LANTERN_TONES, BOAT_TONES). The boat faces right and is mirrored.
+  // Its rower is a stick figure like the rest of the folk (see drawBoat).
+  const LANTERN_SHAPES = {
+    near:{rows:['.-.','|#|',"'^'"],tones:['ttt','bpb','bfb']},
+    mid:{rows:['#','^'],tones:['b','f']},
+    spark:{rows:['*'],tones:['b']},
+    speck:{rows:['.'],tones:['b']},
+  };
+  const LANTERN_TONES = {t:['ember',.8],b:['fire',.95],p:['ember',.7],f:['cream',1]};
+  const BOAT_SHAPES = {
+    side:{rows:['        |*',' _______|_',' \\_______/'],tones:['        pl',' wwwwwwwpw',' hhhhhhhhh']},
+    end:{rows:['_____','\\___/'],tones:['wwwww','hhhhh']},
+  };
+  const BOAT_TONES = {h:['bark',.7],w:['wood',.9],p:['bark',.55],l:['fire',1]};
   const CAMERA = {yaw:.52,pitch:.58};
   // The opening: the page lands on a glowing orrery high above the scene
   // and waits `hold` seconds, or until a tap, then the camera cranes
@@ -253,6 +290,11 @@
       this.nextMeteor = 4;
       this.shower = null;
       this.nextShower = SHOWER.first[0]+Math.random()*(SHOWER.first[1]-SHOWER.first[0]);
+      this.lanterns = [];
+      this.lanternRelease = null;
+      this.nextLanterns = LANTERNS.first[0]+Math.random()*(LANTERNS.first[1]-LANTERNS.first[0]);
+      this.boat = null;
+      this.nextBoat = BOAT.first[0]+Math.random()*(BOAT.first[1]-BOAT.first[0]);
       this.fish = [];
       this.drops = [];
       this.nextLeap = 5;
@@ -835,7 +877,7 @@
     // the first frame of the descent, Oct 26 2026).
     warm() {
       if(!this.gl) return;
-      for(const sheet of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas,this.moonAtlas,this.meteorAtlas,this.orbAtlas]) if(sheet) this.gl.texture(sheet.canvas);
+      for(const sheet of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas,this.moonAtlas,this.lanternAtlas,this.boatAtlas,this.meteorAtlas,this.orbAtlas]) if(sheet) this.gl.texture(sheet.canvas);
       for(const canvas of [this.hazeCanvas,this.space&&this.space.haze]) if(canvas&&canvas.width) this.gl.texture(canvas);
       // The static world's batch is recorded here too, off the first frame
       // that shows the scene, and the crane's two layers are made with the
@@ -869,7 +911,7 @@
       this.shiftY=shift;this.staticKey=key;
     }
     makeAtlas() {
-      for(const old of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas,this.moonAtlas]) if(old) old.canvas.width=old.canvas.height=0;
+      for(const old of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas,this.moonAtlas,this.lanternAtlas,this.boatAtlas]) if(old) old.canvas.width=old.canvas.height=0;
       this.atlas=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
       this.navAtlas=this.buildAtlas(NAV.font,NAV.cw,NAV.ch,['canvas'],700,' ^v');
       // The moon shares the orrery's fine cells and glow.
@@ -878,6 +920,9 @@
       // stay fixed across viewports and terrain-detail settings.
       this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],600);
       this.fishAtlas=this.buildAtlas(FISH.font,FISH.cw,FISH.ch,['moon','blue'],700,' <>');
+      // The paper lanterns glow; the boat is drawn at the fish's size.
+      this.lanternAtlas=this.buildAtlas(LANTERNS.font,LANTERNS.cw+LANTERNS.pad,LANTERNS.ch+LANTERNS.pad,['fire','ember','cream'],700," .-|#'^*_:=()[]/\\",LANTERNS.glow);
+      this.boatAtlas=this.buildAtlas(FISH.font,FISH.cw,FISH.ch,['wood','bark','cloth','ember','fire','canvas'],700," _\\/|o=-'.~*");
       // Stick figures need only strokes and heads. Their font follows the
       // projection scale, so a zoomed scene keeps the figures' proportions.
       const folk=CAMPER.font*this.projection.scale/VIEW.scale,k=folk/CAMPER.font;
@@ -1332,8 +1377,11 @@
         const gl=this.gl;
         gl.target(gl.layer('sky',this.canvas.width,Math.round(this.space.travel*this.dpr)),BG_RGB);this.drawSpace(0);gl.target(null);
       }
-      // The first meteor shower counts from the scene's arrival.
-      this.nextShower+=this.time-intro.timeAtStart;
+      // The first meteor shower and lanterns count from the scene's
+      // arrival. The boat does not: its clock already runs while the keep
+      // comes into view, and it should set out as the camera arrives.
+      const away=this.time-intro.timeAtStart;
+      this.nextShower+=away;this.nextLanterns+=away;
     }
     // Builds the orrery and the sky above the scene unless they are built.
     // Opened without the opening, the page builds them a moment later so
@@ -1916,16 +1964,22 @@
     // still most of the time.
     figureMarks(fig,project) {
       const c=fig.cued,r=fig.rod,s=fig.toast,sc=fig.scope;
-      const key=`${fig.x},${fig.y},${fig.z},${fig.heading},${fig.face},${fig.speed},${fig.phase},${fig.fade},${fig.clip},${fig.next},${c?c.name+c.k+','+c.clock:''},${r?r.lift+','+r.out+','+r.x+','+r.z:''},${s?s.raise+','+s.has+','+s.len:''},${sc?sc.heading:''},${this.viewKey}`;
+      const key=`${fig.x},${fig.y},${fig.z},${fig.heading},${fig.face},${fig.speed},${fig.phase},${fig.fade},${fig.clip},${fig.next},${c?c.name+c.k+','+c.clock:''},${r?r.lift+','+r.out+','+r.x+','+r.z:''},${s?s.raise+','+s.has+','+s.len:''},${sc?sc.heading:''},${fig.oars?fig.oars.k+','+fig.oars.lift+','+fig.oars.hide+','+fig.oars.water:''},${this.viewKey}`;
       if(fig.marksKey===key) return fig.marks;
       fig.marksKey=key;
       return fig.marks=Folk.marks(fig,project,this.folkMetrics,fig.marks||[]);
     }
-    drawFigure(fig) {
+    // `boat`, for a rower, hides what its hull covers: body marks below the
+    // gunwale's height, oar marks there on the far side of the boat, and
+    // any below the hull's bottom line on the screen (`line`), which are
+    // under the water.
+    drawFigure(fig,boat=null) {
       // The dark keyline goes down before the strokes, so grass never runs
       // into a limb and limbs never cut limbs.
       const sheet=this.folkAtlas,f=this.fire,project=this.folkProject||(this.folkProject=(x,y,z)=>this.project(x,y,z));
-      const marks=this.figureMarks(fig,project),reach=Math.hypot(fig.x-f.x,fig.z-f.z);
+      let marks=this.figureMarks(fig,project);
+      const reach=Math.hypot(fig.x-f.x,fig.z-f.z);
+      if(boat) marks=marks.filter(m=>m.y<=boat.line+1.5&&(m.wy>=boat.gunwale||m.t==='oar'&&m.d>boat.d));
       for(const m of marks) if(m.t!=='line'&&this.visible(m,true)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet,m.r);
       for(const m of marks) {
         if(!this.visible(m,true))continue;
@@ -1998,6 +2052,10 @@
       if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
       if (!this.shower && t >= this.nextShower) this.startShower();
       if (this.shower) this.stepShower(dt);
+      if (LANTERNS.on && !this.lanternRelease && t >= this.nextLanterns) this.releaseLanterns();
+      if (this.lanternRelease || this.lanterns.length) this.stepLanterns(dt);
+      if (!this.boat && t >= this.nextBoat) this.launchBoat();
+      if (this.boat) this.stepBoat(dt);
       for (const meteor of this.meteors) meteor.age += dt;
       this.meteors = this.meteors.filter(m=>m.age<m.life);
       if (this.satellite) { this.satellite.age += dt; if (this.satellite.age >= this.satellite.life) { this.satellite = null; this.nextSatellite = t+40+Math.random()*40; } }
@@ -2311,6 +2369,231 @@
         return;
       }
     }
+    // Paper lanterns: the camper lights one, lifts it overhead with both
+    // hands until it fills, lets it go, and lights the next. Each rises
+    // slowly, swaying, carried off by the wind, and dims to a spark as it
+    // climbs. The wanderers stop to watch once the first is up. Not during
+    // a meteor shower: one wonder at a time.
+    releaseLanterns() {
+      if(this.lanternRelease) return;
+      if(this.shower) {this.nextLanterns=this.time+30;return;}
+      const [lo,hi]=LANTERNS.count,n=lo+Math.floor(Math.random()*(hi-lo+1)),times=[];
+      for(let i=0,at=0;i<n;i++,at+=LANTERNS.hold+LANTERNS.gap[0]+Math.random()*(LANTERNS.gap[1]-LANTERNS.gap[0])) times.push(at);
+      const holder=this.folk[0],onlookers=this.folk.filter(f=>f!==holder&&!f.rod&&!f.toast);
+      // The breeze carries them toward the middle of the screen: on a phone
+      // the camp sits near its right edge, and a breeze to the right took
+      // every lantern straight off it.
+      const seen=this.project(holder.x,holder.y,holder.z),side=seen.x<this.W/2?1:-1;
+      this.lanternRelease={age:0,times,next:0,holder,side,notice:onlookers.map(f=>({fig:f,at:LANTERNS.hold+1+Math.random()*4}))};
+    }
+    // Where a held lantern hangs: just over the holder's raised hands.
+    lanternHeld(l) {
+      const fig=l.holder;
+      l.x=fig.x+Math.cos(fig.heading)*.35;l.z=fig.z+Math.sin(fig.heading)*.35;
+      l.y=fig.y+5.3+Math.sin(l.age*2.4+l.phase)*.06;
+    }
+    stepLanterns(dt) {
+      const r=this.lanternRelease;
+      if(r) {
+        r.age+=dt;
+        while(r.next<r.times.length&&r.age>=r.times[r.next]) {
+          r.next++;
+          const a=Math.random()*TAU,l={holder:r.holder,side:r.side,age:0,x:0,y:0,z:0,phase:Math.random()*TAU,rise:LANTERNS.rise*(.75+Math.random()*.5),drift:.5+Math.random()*.9,vx:Math.cos(a)*.55,vz:Math.sin(a)*.55};
+          this.lanternHeld(l);this.lanterns.push(l);
+          Folk.cue(r.holder,'lift',LANTERNS.hold-.2);
+        }
+        for(const n of r.notice) {
+          if(n.done||r.age<n.at) continue;
+          n.done=true;
+          if(n.fig.route||n.fig.hidden) continue;
+          Folk.halt(n.fig,LANTERNS.watch+1.5);
+          Folk.cue(n.fig,'lookUp',LANTERNS.watch);
+        }
+        const last=r.times[r.times.length-1];
+        if(r.next>=r.times.length&&r.age>last+LANTERNS.hold+LANTERNS.watch) {
+          this.lanternRelease=null;
+          this.nextLanterns=this.time+LANTERNS.every[0]+Math.random()*(LANTERNS.every[1]-LANTERNS.every[0]);
+        }
+      }
+      // Let go, a lantern eases up to its climb and wanders off on a heading
+      // of its own, so a release spreads out rather than rising in single
+      // file; the wind takes it across the screen and a little away from
+      // the viewer, toward the keep.
+      const ax=Math.cos(CAMERA.yaw),az=-Math.sin(CAMERA.yaw);
+      for(const l of this.lanterns) {
+        l.age+=dt;
+        const up=l.age-LANTERNS.hold;
+        if(up<0) {this.lanternHeld(l);continue;}
+        const ease=smooth(0,4,up),drift=(this.wind*.9+.2)*l.drift*l.side*smooth(0,8,up);
+        l.y+=l.rise*ease*dt;
+        l.x+=(ax*drift+Math.sin(CAMERA.yaw)*.25*ease+l.vx*ease)*dt;l.z+=(az*drift-Math.cos(CAMERA.yaw)*.25*ease+l.vz*ease)*dt;
+      }
+      this.lanterns=this.lanterns.filter(l=>l.age<LANTERNS.life);
+    }
+    drawLanterns() {
+      // Near, a lantern is a paper sky lantern: a rim, a glowing body of
+      // panels and the flame under its open bottom. Higher up it shrinks to
+      // a body and flame, then a spark, then a speck. (A lone O read as a
+      // letter, not a lantern; Jake, Oct 28 2026.)
+      const sheet=this.lanternAtlas,G=sheet.index,t=this.time,cw=LANTERNS.cw,ch=LANTERNS.ch,shapes=this.lanternShapes||LANTERN_SHAPES;
+      for(const l of this.lanterns) {
+        const up=Math.max(0,l.age-LANTERNS.hold),far=clamp(up/40),sway=Math.sin(t*.8+l.phase)*.4*smooth(0,3,up);
+        const p=this.project(l.x+Math.cos(CAMERA.yaw)*sway,l.y,l.z-Math.sin(CAMERA.yaw)*sway);
+        if(!this.visible(p)) continue;
+        // It fills with light while held, flickers a little, and fades
+        // out in its last stretch.
+        const a=smooth(0,.8,l.age)*(1-smooth(.75,1,l.age/LANTERNS.life));
+        const flick=.9+.1*Math.sin(t*7.3+l.phase)*Math.sin(t*3.1+l.phase*2);
+        const shape=far<.3?shapes.near:far<.6?shapes.mid:far<.88?shapes.spark:shapes.speck,rows=shape.rows;
+        this.halo(p.x,p.y,mix(16,6,far),COLORS.fire,.36*a*flick,.11*a*flick,.4);
+        for(let j=0;j<rows.length;j++) for(let i=0;i<rows[j].length;i++) {
+          const c=rows[j][i];
+          if(c===' ') continue;
+          const [pal,b]=LANTERN_TONES[shape.tones[j][i]];
+          this.sheetGlyph(G[c],pal,b*flick*(1-far*.25),p.x+(i-(rows[j].length-1)/2)*cw,p.y+(j-(rows.length-1)/2)*ch,false,a,sheet);
+        }
+      }
+    }
+    // The boat rows in from the bottom of the screen against the current,
+    // rests on the open water below the bridge with its oars shipped, turns
+    // end on to come about, and drifts back down and away. It once came
+    // down from behind the keep's hill and under the bridge, and passing
+    // the deck and its posts never looked right (Jake, Oct 28 2026), so it
+    // keeps to the water below them.
+    launchBoat() {
+      if(this.boat) return;
+      // It rows in from past whichever edge of the screen the river leaves
+      // by (the left on a phone, the bottom on a wide desktop) and back out
+      // past it, never fading: it starts with its bow just out of view and
+      // ends with its stern gone (Jake, Oct 28 2026, who had seen it fade
+      // in). On iOS the bottom of the visible page is the visual
+      // viewport's, under Safari's bars.
+      const view=window.visualViewport,bottom=this.topInset+(view?view.height:innerHeight);
+      const at=z=>this.project(riverX(z)+BOAT.lane*riverWidth(z),.1,z);
+      const edge=m=>{let z=20;for(let q=at(z);z<160&&q.y<bottom+m&&q.x>-m&&q.x<this.W+m;q=at(z)) z+=.5;return z;};
+      const from=edge(BOAT.out),exit=edge(BOAT.out+8);
+      this.boat={phase:'up',x:0,z:from,from,exit,turnZ:this.bridge.z+14+Math.random()*9,age:0,clock:0,rest:7+Math.random()*5,stroke:Math.random()*TAU,wake:1.5,bob:0,
+        rower:Folk.create({x:0,y:0,z:from,seed:57,palette:'cloth',brightness:.86,clips:['rowReach'],oars:true},this.world)};
+      this.placeBoat(this.boat);this.stepRower(this.boat,0);
+    }
+    placeBoat(b) {
+      b.x=riverX(b.z)+BOAT.lane*riverWidth(b.z);
+    }
+    stepBoat(dt) {
+      const b=this.boat;
+      b.age+=dt;b.clock+=dt;b.bob=Math.sin(this.time*1.7)*.08;
+      if(b.phase==='up'||b.phase==='down') {
+        // Each pull of the oars gives it a small surge.
+        b.stroke+=dt*TAU/BOAT.stroke;
+        const pull=Math.max(0,Math.sin(b.stroke)),dir=b.phase==='up'?-1:1;
+        b.z+=dir*(b.phase==='up'?BOAT.up:BOAT.down)*(.7+pull*.6)*dt;
+        if((b.wake-=dt)<=0) {
+          b.wake=2.4+Math.random();
+          this.ripples.push({x:b.x,z:b.z-dir*1.2,age:0,speed:1.4});
+          if(this.ripples.length>5) this.ripples.shift();
+        }
+      } else b.z+=.12*dt;
+      this.placeBoat(b);
+      this.stepRower(b,dt);
+      if(b.phase==='up'&&b.z<=b.turnZ) {b.phase='rest';b.clock=0;}
+      else if(b.phase==='rest'&&b.clock>=b.rest) {b.phase='turn';b.clock=0;}
+      else if(b.phase==='turn'&&b.clock>=BOAT.turn) {b.phase='down';b.clock=0;}
+      else if(b.phase==='down'&&b.z>=b.exit) {this.boat=null;this.nextBoat=this.time+BOAT.every[0]+Math.random()*(BOAT.every[1]-BOAT.every[0]);}
+    }
+    // Which way the boat faces on the screen: 1 right, -1 left. Its bow
+    // leads, upstream until it comes about halfway through its turn.
+    boatFace(b) {
+      const p=this.project(b.x,.1,b.z),q=this.project(riverX(b.z-1)+BOAT.lane*riverWidth(b.z-1),.1,b.z-1),up=q.x<p.x?-1:1;
+      const before=b.phase==='up'||b.phase==='rest'||b.phase==='turn'&&b.clock<BOAT.turn/2;
+      return before?up:-up;
+    }
+    // The rower is one of the folk: the same rig and limbs, sat on the
+    // thwart facing the stern, swinging between the catch and the end of
+    // the pull on each stroke, the oars shipped while the boat rests.
+    // Coming about, they turn through facing the viewer. (A rower drawn as
+    // `o` over `/|\` matched none of the other figures and its arms did
+    // not meet its body; Jake, Oct 28 2026.)
+    stepRower(b,dt) {
+      const fig=b.rower,o=fig.oars,face=this.boatFace(b);
+      // A heading that faces screen right, and one that faces the viewer.
+      const right=Math.atan2(-Math.sin(CAMERA.yaw),Math.cos(CAMERA.yaw)),viewer=Math.atan2(Math.cos(CAMERA.yaw),Math.sin(CAMERA.yaw));
+      const wrapped=a=>a-TAU*Math.floor((a+Math.PI)/TAU);
+      if(b.phase==='turn') {
+        // From facing one stern to the other, by way of the viewer.
+        const from=right+(face>0?0:Math.PI),to=from+Math.PI,u=smooth(0,BOAT.turn,b.clock);
+        fig.heading=u<.5?from+wrapped(viewer-from)*u*2:viewer+wrapped(to-viewer)*(u*2-1);
+        o.hide=true;o.k=.4;o.lift=0;
+      } else {
+        fig.heading=right+(face>0?Math.PI:0);
+        o.hide=false;
+        if(b.phase==='rest') {o.k=.35;o.lift=.45;}
+        else {
+          // The drive, blades in, then the recovery, blades lifted clear.
+          const s=(b.stroke/TAU%1+1)%1;
+          o.k=s<.45?smooth(0,.45,s):1-smooth(.45,1,s);
+          o.lift=s<.45?0:Math.sin((s-.45)/.55*Math.PI);
+        }
+      }
+      // Sat with the hips just under the gunwale, so the thighs are hidden
+      // by the boat's side and the whole torso shows above it.
+      const q=this.projection,unit=q.cp*q.scale,seat=Folk.POSES.rowReach,R=Folk.RIG;
+      const reach=(R.thigh*Math.cos(seat.aT)+R.shin*Math.cos(seat.aT+seat.aS))*Math.cos(seat.legSplay);
+      fig.x=b.x;fig.z=b.z;fig.y=.1+b.bob+this.boatAtlas.ch*.42/unit-reach;
+      // The blades dip to just under the hull's bottom line on the screen,
+      // which is where the water meets the boat in its drawing (the river's
+      // own surface is higher, mid-hull).
+      o.water=.1+b.bob-(this.boatAtlas.ch*.5+2)/unit;
+      Folk.step(fig,dt,this.world);
+    }
+    drawBoat(b) {
+      // A rowboat seen side on, its bow toward the way it goes, a lantern
+      // hung from a crooked pole at the bow lighting the water under it,
+      // and its rower. Its matte clears the water under the hull. Coming
+      // about it is seen end on.
+      const sheet=this.boatAtlas,G=sheet.index,t=this.time,cw=sheet.cw,ch=sheet.ch,shapes=this.boatShapes||BOAT_SHAPES;
+      const p=this.project(b.x,.1+b.bob,b.z),face=this.boatFace(b);
+      const shape=b.phase==='turn'?shapes.end:shapes.side,rows=shape.rows,n=rows.length;
+      const cell={x:0,y:0,d:p.d},cells=[];
+      let lamp=null;
+      for(let j=0;j<n;j++) for(let i=0;i<rows[j].length;i++) {
+        let c=rows[j][i];
+        if(c===' ') continue;
+        const tone=shape.tones[j][i];
+        if(face<0) c=c==='/'?'\\':c==='\\'?'/':c;
+        const col=face<0?rows[j].length-1-i:i;
+        cell.x=p.x+(col-(rows[j].length-1)/2)*cw;cell.y=p.y-(n-1-j)*ch;
+        if(!this.visible(cell)) continue;
+        if(tone==='l') lamp={x:cell.x,y:cell.y};
+        cells.push({c,tone,x:cell.x,y:cell.y});
+      }
+      const d=this.dpr;
+      for(const c of cells) if(c.tone==='h'||c.tone==='w') this.rect(Math.round((c.x-cw/2)*d)/d,Math.round((c.y-ch/2)*d)/d,cw,ch);
+      const flick=.88+.12*Math.sin(t*6.1)*Math.sin(t*2.3);
+      if(lamp) {
+        this.halo(lamp.x,lamp.y,18,COLORS.fire,.24*flick,.08*flick,.4);
+        // Its light on the water: a few broken glints under the lantern.
+        for(let k=1;k<=3;k++) {
+          const gx=lamp.x+Math.sin(t*2.2+k*1.9)*cw*.6,gy=p.y+k*ch*.75;
+          if(this.material[Math.floor(gy/this.ch)*this.cols+Math.floor(gx/this.cw)]===MAT.water) this.sheetGlyph(G[k===1?'~':'-'],'ember',(.85-k*.15)*flick,gx,gy,false,1-k*.22,sheet);
+        }
+      }
+      for(const c of cells) {
+        const [pal,br]=BOAT_TONES[c.tone];
+        this.sheetGlyph(G[c.c],pal,br*(c.tone==='l'?flick:1),c.x,c.y,false,1,sheet);
+      }
+      // The rower over the hull, but only what shows above its side: the
+      // legs and the far oar's shaft are behind it, and a blade under the
+      // water is out of sight. The near oar crosses in front of the hull.
+      const unit=this.projection.cp*this.projection.scale,line=p.y+ch*.5;
+      this.drawFigure(b.rower,{gunwale:.1+b.bob+ch*.5/unit,line,d:p.d});
+      // A blade going in throws up a little water where it meets the line.
+      const o=b.rower.oars;
+      if(!o.hide&&o.lift<.05&&(b.phase==='up'||b.phase==='down')) {
+        let entry=null;
+        for(const m of b.rower.marks) if(m.t==='oar'&&m.d>p.d&&m.y<=line+1.5&&(!entry||m.y>entry.y)) entry=m;
+        if(entry&&entry.y>line-3) this.sheetGlyph(G['~'],'cloth',.55,entry.x,line+1.5,false,.8,sheet);
+      }
+    }
     openHeading(x,y,side,angle,reach) {
       // Falling steeply reads best, so keep the given heading if it makes a
       // fair streak; failing that, try flatter ones on the same side, then
@@ -2621,6 +2904,7 @@
         {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,rabbitBob,{actor:true,eyePalette:'deer',opaque:true})},
         ...this.folk.filter(fig=>!fig.hidden).map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
         ...this.fish.map(f=>{const [x,y,z]=this.leapPoint(f,Math.min(1,f.age/f.life));return {x,y,z,draw:()=>this.drawFish(f)};}),
+        ...(this.boat?[{x:this.boat.x,y:.1,z:this.boat.z,draw:()=>this.drawBoat(this.boat)}]:[]),
       ];
       for(const a of actors)a.d=this.project(a.x,a.y,a.z).d;
       actors.sort((a,b)=>a.d-b.d);
@@ -2638,6 +2922,7 @@
         const blink=Math.pow(Math.max(0,Math.sin(t*1.15+i*1.83)),3)*.9;
         this.worldGlyph(i%4?'.':'*','fly',.95,x,y,z,blink);
       }
+      if(this.lanterns.length) this.drawLanterns();
     }
     render(dt=0) {
       const started=performance.now();
@@ -2809,9 +3094,11 @@
     document.head.appendChild(style);
     if(new URLSearchParams(location.search).get('studio')!=='1') return;
     const tools=document.createElement('aside');tools.className='river-tools';tools.setAttribute('aria-label','Landscape preview');
-    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),shower=document.createElement('button'),replay=document.createElement('button');
-    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';shower.textContent='Meteor shower';replay.textContent='Replay intro';
+    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),shower=document.createElement('button'),lanterns=document.createElement('button'),boat=document.createElement('button'),replay=document.createElement('button');
+    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';shower.textContent='Meteor shower';lanterns.textContent='Lanterns';boat.textContent='Boat';replay.textContent='Replay intro';
     shower.addEventListener('click',()=>scene.startShower());
+    lanterns.addEventListener('click',()=>scene.releaseLanterns());
+    boat.addEventListener('click',()=>scene.launchBoat());
     replay.addEventListener('click',()=>{scene.startIntro();scene.render();});
     if(scene.reduced) replay.disabled=true;
     sky.addEventListener('click',()=>{
@@ -2829,7 +3116,7 @@
     pause.setAttribute('aria-pressed','false');
     if(scene.reduced) { pause.disabled=true;pause.textContent='Still'; }
     pause.addEventListener('click',()=>{ scene.paused=!scene.paused;pause.textContent=scene.paused?'Resume':'Pause';pause.setAttribute('aria-pressed',String(scene.paused)); });
-    tools.append(replay,shower,sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
+    tools.append(replay,shower,lanterns,boat,sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
   }
 
   window.__themes=window.__themes||{};
