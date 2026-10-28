@@ -36,7 +36,15 @@
     // Pointing up at the sky ahead, or back over a shoulder.
     point: { lean:-.10,aU:2.60, aL:0,  bU:-.10, bL:.10, aT:.08, aS:0,   bT:-.08, bS:0,   armSplay:.20, legSplay:.32 },
     pointBack:{lean:-.05,aU:3.75,aL:0, bU:-.10, bL:.10, aT:.08, aS:0,   bT:-.08, bS:0,   armSplay:.20, legSplay:.32 },
+    // Leaning back to watch the sky, arms loose.
+    lookUp:{ lean:-.30,aU:.15, aL:.10, bU:-.15, bL:.10, aT:.10, aS:0,   bT:-.10, bS:0,   armSplay:.45, legSplay:.36 },
   };
+  // A wave is set across the viewer's line of sight whichever way the figure
+  // faces, so it never hides behind the body: the upper arm out to the side,
+  // `upper` radians above level, the forearm `lower` above level, rocking
+  // `rock` either way at `rate` radians a second, so the hand clears the
+  // head. Only the waving arm moves.
+  const WAVE = { upper:.75, lower:1.45, rock:.35, rate:12 };
   const WALK = { stride:.42, knee:.70, arm:.45, cycle:2.6 };
   const LIMBS = [['hip','neck'],['shoulder','elbowA','handA'],['shoulder','elbowB','handB'],['hip','kneeA','footA'],['hip','kneeB','footB']];
   // A fishing rod rides in hand A; its line runs from the tip to the bobber.
@@ -186,8 +194,18 @@
     if (fig.cued) {
       const c = fig.cued;
       if (c.wait > 0) c.wait -= dt;
-      else { c.hold -= dt; c.k = clamp(c.k + (c.hold > 0 ? dt / .45 : -dt / 1.1)); }
+      else { c.hold -= dt; c.clock += dt; c.k = clamp(c.k + (c.hold > 0 ? dt / .45 : -dt / 1.1)); }
       if (c.hold <= 0 && c.k <= 0) fig.cued = null;
+    }
+    // Turn to a heading set by greet; once the wave is done, turn back to
+    // the work at hand. A walker just stays facing that way until it moves on.
+    if (fig.face != null && fig.state !== 'walk' && !fig.route) {
+      const turn = wrap(fig.face - fig.heading);
+      fig.heading = wrap(fig.heading + clamp(turn, -2.4 * dt, 2.4 * dt));
+      if (!fig.cued) {
+        if (fig.faceBack != null) { fig.face = fig.faceBack; fig.faceBack = null; }
+        else if (Math.abs(turn) < .01) fig.face = null;
+      }
     }
     pose(fig);
   }
@@ -196,8 +214,31 @@
   // after a short beat to notice it. It eases in, holds, then eases back to
   // whatever it was doing. A figure already cued keeps that cue.
   function cue(fig, name, hold, wait = 0) {
-    if (!fig.cued) fig.cued = { name, hold, wait, k: 0 };
+    if (!fig.cued) fig.cued = { name, hold, wait, k: 0, clock: 0 };
     else if (fig.cued.name === name) fig.cued.hold = Math.max(fig.cued.hold, hold);
+  }
+
+  // Stop a wanderer where it stands for at least `seconds`.
+  function halt(fig, seconds) {
+    if (fig.home && !fig.route) { fig.state = 'idle'; fig.target = null; fig.timer = Math.max(fig.timer, seconds); }
+  }
+
+  // Wave to whoever is watching. `across` is the screen's left-right axis
+  // in the world, as [x, z]. `face` is a heading to turn to first (null
+  // stays put); a figure without a home turns back to its work afterwards.
+  // A wanderer stops for it, unless it is on a route, when it waves on the
+  // move. `arm` is 'a' or 'b', so a hand that is busy stays busy.
+  function greet(fig, across, face = null, arm = 'a') {
+    fig.across = across;
+    const name = arm === 'b' ? 'waveB' : 'wave';
+    // Mid-wave, another tap only keeps it going.
+    if (fig.cued) { if (fig.cued.name !== name) return false; cue(fig, name, 1.9); return true; }
+    if (fig.route) face = null;
+    else halt(fig, 4.5 + fig.random() * 2);
+    if (face != null) { fig.faceBack = fig.home ? null : fig.face ?? fig.heading; fig.face = face; }
+    // A beat to notice, longer for a bigger turn.
+    cue(fig, name, 1.9, .2 + (face == null ? 0 : Math.abs(wrap(face - fig.heading)) * .3));
+    return true;
   }
 
   // Wait for a bite; then land it, lose it, or reel in an empty hook. A
@@ -330,7 +371,8 @@
     const p = fig.pose;
     if (fig.home) blend(POSES.rest, POSES.rest, 0, p);
     else blend(POSES[fig.clips[fig.clip]], POSES[fig.clips[fig.next]], ease(fig.fade), p);
-    if (fig.cued) blend(p, POSES[fig.cued.name], ease(fig.cued.k), p);
+    // Waves are not poses; joints lays the waving arm out itself.
+    if (fig.cued && POSES[fig.cued.name]) blend(p, POSES[fig.cued.name], ease(fig.cued.k), p);
     // Arms follow the rod as it lifts and swings.
     if (fig.rod) { const raise = (fig.rod.lift - ROD.lift) * .7; p.aU += raise; p.bU += raise; }
     if (fig.toast) p.aU += fig.toast.raise * .6;
@@ -368,6 +410,28 @@
       footA: add(kneeA, dir(p.aT + p.aS, p.legSplay), RIG.shin), footB: add(kneeB, dir(p.bT + p.bS, -p.legSplay), RIG.shin),
       handA: add(elbowA, dir(p.aU + p.aL, p.armSplay), RIG.lower), handB: add(elbowB, dir(p.bU + p.bL, -p.armSplay), RIG.lower),
     };
+    const c = fig.cued;
+    if (c && (c.name === 'wave' || c.name === 'waveB')) {
+      // Out to whichever screen side the arm is on; for someone seen side
+      // on, out behind them, clear of whatever they are facing. Sides are
+      // judged by the heading being turned to, so the arm keeps to one side
+      // through the turn. Each bone turns from its pose to the wave's
+      // direction as the cue eases in and out.
+      const a = c.name === 'wave', k = ease(c.k), [ax, az] = fig.across;
+      const h = fig.face ?? fig.heading, hx = Math.cos(h), hz = Math.sin(h);
+      const ahead = hx * ax + hz * az, own = (a ? 1 : -1) * (hx * az - hz * ax);
+      const side = Math.abs(ahead) > .5 ? -Math.sign(ahead) : own < 0 ? -1 : 1;
+      const toward = e => [ax * side * Math.cos(e), Math.sin(e), az * side * Math.cos(e)];
+      const turn = (pose, wave) => {
+        const d = [0, 1, 2].map(i => mix(pose[i], wave[i], k)), n = Math.hypot(d[0], d[1], d[2]) || 1;
+        return [d[0] / n, d[1] / n, d[2] / n];
+      };
+      const e0 = a ? elbowA : elbowB, h0 = a ? out.handA : out.handB;
+      const upper = turn([0, 1, 2].map(i => (e0[i] - shoulder[i]) / RIG.upper), toward(WAVE.upper));
+      const lower = turn([0, 1, 2].map(i => (h0[i] - e0[i]) / RIG.lower), toward(WAVE.lower + Math.sin(c.clock * WAVE.rate) * WAVE.rock));
+      const elbow = add(shoulder, upper, RIG.upper), hand = add(elbow, lower, RIG.lower);
+      if (a) { out.elbowA = elbow; out.handA = hand; } else { out.elbowB = elbow; out.handB = hand; }
+    }
     const rod = fig.rod;
     if (rod) {
       const tip = add(out.handA, [fx * Math.cos(rod.lift), Math.sin(rod.lift), fz * Math.cos(rod.lift)], ROD.length);
@@ -487,5 +551,5 @@
     return out;
   }
 
-  window.__folk = { RIG, POSES, measure, create, step, cue, marks, glyphs: ' -/|\\o.=' };
+  window.__folk = { RIG, POSES, measure, create, step, cue, halt, greet, marks, glyphs: ' -/|\\o.=' };
 })();

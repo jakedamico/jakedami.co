@@ -10,6 +10,18 @@
        translucent blur-of-content that makes pages read edge-to-edge. -->
   <title>jakedami.co</title>
   <meta name="description" content="building stuff.">
+  <!-- Link previews (iMessage, Instagram, Slack, X). og.png is a 1200x630
+       still of the scene; recapture it when the scene changes a lot.
+       Crawlers don't run the page, and need absolute URLs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jakedami.co/">
+  <meta property="og:title" content="jakedami.co">
+  <meta property="og:description" content="building stuff.">
+  <meta property="og:image" content="https://jakedami.co/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="An ASCII-art night scene: a castle above a river, a campfire, and a signpost that reads building stuff.">
+  <meta name="twitter:card" content="summary_large_image">
   <!-- Favicon: a bold lowercase j in the signpost's cream, on the night sky's
        navy. Text glyphs sit on a baseline and carry side bearings, so the y is
        tuned by hand: the j's visual center (dot to descender tail) lands near
@@ -24,16 +36,17 @@
       --bg: #080f18; --text: #e3e9de; --link: #9bada4; --link-hover: #f1ecd9;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
+    /* No double-tap-to-zoom (it visibly shifts the locked page on iOS);
+       plain taps and clicks are unaffected. Set on the root as well as the
+       body so no part of the page is left out; iOS also needs the touchend
+       guard in the theme (see start()). */
+    html, body { height: 100%; touch-action: manipulation; }
     /* Explicit html background: Safari samples it when tinting the areas
        beyond the page (status bar, rubber-band overscroll). */
     html { background: var(--bg); }
     body {
       margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      /* No double-tap-to-zoom (it visibly shifts the locked page on iOS);
-         plain taps and clicks are unaffected. */
-      touch-action: manipulation;
     }
     canvas.bg-canvas {
       position: fixed; inset: 0; width: 100vw; height: 100vh;
@@ -82,10 +95,13 @@
     </nav>
   </main>
 
-  <!-- Bump ?v= whenever either script changes. The two depend on each other,
-       and Safari would otherwise pair a fresh one with a stale cached copy. -->
-  <script src="themes/folk.js?v=2026-10-12o"></script>
-  <script src="themes/riverkeep.js?v=2026-10-12o"></script>
+  <!-- Bump ?v= whenever any of the scripts changes. They depend on each
+       other, and Safari would otherwise pair a fresh one with a stale cached
+       copy. glyphs-gl.js is the WebGL glyph engine; riverkeep.js draws
+       through a 2D context when it is missing. -->
+  <script src="themes/glyphs-gl.js?v=2026-10-27m"></script>
+  <script src="themes/folk.js?v=2026-10-27m"></script>
+  <script src="themes/riverkeep.js?v=2026-10-27m"></script>
   <script>window.__themes.riverkeep.start(document.getElementById('sign'));</script>
 </body>
 </html>

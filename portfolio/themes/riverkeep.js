@@ -12,6 +12,7 @@
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
   const FONT = '"SFMono-Regular", Consolas, "Liberation Mono", monospace';
   const BG = '#080f18';
+  const BG_RGB = [1, 3, 5].map(i => parseInt(BG.slice(i, i + 2), 16) / 255);
   const ACTOR = {font:7.5,cw:4.75,ch:7.5};
   const CAMPER = {font:9.5,cw:5.9,ch:10};
   const FISH = {font:9.5,cw:5.8,ch:9.5};
@@ -19,7 +20,89 @@
   const FOLK_PROPS = {rod:['canvas',.66],line:['cloth',.40],bob:['cream',.95],scope:['cream',1],tripod:['canvas',.55],lens:['moon',1]};
   const Folk = window.__folk;
   const PONY_HEAD = {scale:.88,firstColumn:5,rows:3,pivotColumn:6,pivotRow:3};
+  // A tapped dog spins on the spot: `hops` bounds over `spin` seconds, `lift`
+  // pixels high, turning about in the air on each, then a wag for `wag`
+  // seconds. It stays put because shrubs and the camp hem it in; anywhere
+  // it could run, it would vanish behind them.
+  const DOG_SPIN = {hops:4,spin:1.6,lift:4,wag:1.4};
+  // A meteor shower now and then: the first `first` seconds after the page
+  // opens, later ones `gap` seconds apart. Each lasts `life` seconds,
+  // building to `peak` meteors a second and easing off; onlookers watch
+  // until `watch` seconds in.
+  const SHOWER = {life:26,peak:3,watch:20,first:[25,40],gap:[240,420]};
   const CAMERA = {yaw:.52,pitch:.58};
+  // The opening: the page lands on a glowing orrery high above the scene
+  // and waits `hold` seconds, or until a tap, then the camera cranes
+  // straight down through the stars to the keep. After that the two are
+  // pages: a chevron at the top of the scene cranes back up, one at the
+  // bottom of the orrery comes down, and nothing moves on its own.
+  // `travel` is the drop in screen heights, `cue` the seconds before the
+  // prompt shows, and `pitch` tilts the orbits.
+  const INTRO = {descend:3.2, hold:10, travel:1.15, fade:.9, cue:2.5, pitch:.92};
+  // The chevrons' own glyph sheet, and how far from one a tap still counts.
+  const NAV = {font:22, cw:14, ch:22, reach:40};
+  // The orrery draws on its own finer glyph sheet, padded for a baked glow.
+  // It draws no orbit rings and cannot be turned by hand: both read as a
+  // diagram rather than a sky, so the view is fixed and the planets alone
+  // trace their paths.
+  // The cells are fine enough that a phone-sized planet is a shaded globe
+  // of many characters rather than a few.
+  const ORB = {font:4.4, cw:2.65, ch:4.4, pad:4, glow:2};
+  const ORB_GLYPHS = " .,:;'-=~+*o%#&@|/\\";
+  const ORB_PALETTES = ['fire','ember','cream','gold','stone','rock','blue','grass','earth','rust','canvas','deer','cloth','cyan','indigo','lilac','moon'];
+  const SPACE_COLORS = {rust:[214,104,66], indigo:[98,128,222], gold:[236,200,118], cyan:[150,208,214]};
+  // Orbits are compressed (not to scale) so Neptune's fits a phone with
+  // margin; `a` and `r` are fractions of its radius, periods are seconds.
+  // Each orbit leans a little (`tilt`) about its own node line. A planet's
+  // `moons` circle it in its orbital plane, in the same units; a `ring` is
+  // a band from `inner` to `outer` planet radii, leaning `tilt` and turned
+  // `turn`: Saturn's full and gapped, Uranus's `plain` and `dim`. The comet
+  // rides an ellipse of eccentricity `e`, closest to the sun `peri`
+  // seconds after the page opens.
+  const ORRERY = {
+    sun:{r:.15},
+    planets:[
+      {name:'mercury',a:.23,r:.034,period:3.8,palette:'stone',spin:.3,tilt:.07,node:1.1,start:.3},
+      {name:'venus',a:.33,r:.055,period:6.4,palette:'cream',air:'cream',spin:-.15,tilt:.04,node:2.6,start:2.4},
+      {name:'earth',a:.42,r:.06,period:9.2,palette:'blue',air:'blue',spin:.6,tilt:0,node:0,start:4.4,moons:[{a:.1,r:.014,period:1.4}]},
+      {name:'mars',a:.51,r:.046,period:13.8,palette:'rust',spin:.6,tilt:.05,node:4.1,start:1.2},
+      {name:'jupiter',a:.73,r:.12,period:27,palette:'canvas',air:'canvas',spin:.9,tilt:.03,node:.6,start:5.3,
+        moons:[{a:.16,r:.013,period:1.6,start:.4,palette:'gold'},{a:.2,r:.012,period:2.6,start:2.9,palette:'cream'},{a:.245,r:.017,period:4.2,start:4.6},{a:.29,r:.015,period:7.5,start:1.5,palette:'rock'}]},
+      {name:'saturn',a:.86,r:.1,period:40,palette:'gold',air:'gold',spin:.8,tilt:.06,node:3.3,start:.9,ring:{inner:1.35,outer:2.05,tilt:-.25,turn:.35},
+        moons:[{a:.275,r:.016,period:4.2,start:2.2,palette:'canvas'}]},
+      {name:'uranus',a:.94,r:.075,period:58,palette:'cyan',air:'cyan',spin:.5,tilt:.08,node:5.2,start:3.6,ring:{inner:1.65,outer:1.85,tilt:1.45,turn:.3,plain:true,dim:.4,palette:'cloth'}},
+      {name:'neptune',a:1,r:.072,period:80,palette:'indigo',air:'indigo',spin:.5,tilt:.05,node:2.0,start:5.8},
+    ],
+    belt:{inner:.585,outer:.65,count:140,period:19},
+    comet:{a:1.5,e:.8,period:30,tilt:.4,node:.3,peri:5},
+  };
+  // Each planet's face: for a point on its globe (`lat` is the normal's
+  // upward part, so ±1 at the poles; `lon` turns with the planet) a
+  // palette, a tone, and on Earth a palette for the lights of its night
+  // side. Mercury is cratered, Venus a bright cloud ball with faint
+  // swirls, Earth has continents, ice caps and drifting clouds, Mars dark
+  // plains and polar caps, Jupiter belts and the red spot, Saturn softer
+  // bands, Uranus a plain pale globe, Neptune a dark storm and wisps.
+  const SKINS = {
+    mercury:(lat,lon)=>[noise(lon*5,lat*5,722)>.72?'rock':'stone',.6+.4*noise(lon*2.4,lat*3,721)],
+    venus:(lat,lon)=>{const s=noise(lon*1.6+lat*.8,lat*2.6,723);return [s>.58?'gold':'cream',.86+.14*s];},
+    earth:(lat,lon,t)=>{
+      const land=noise(Math.cos(lon)*1.7+2,lat*2.6+Math.sin(lon)*1.7,713)*.7+noise(Math.cos(lon)*4+5,lat*6+Math.sin(lon)*4,715)*.3>.52;
+      const ice=Math.abs(lat)>.82,cloud=noise(lon*1.3+t*.18,lat*3.2,716)>.64;
+      return [cloud||ice?'moon':land?'grass':'blue',cloud||ice?1.05:land?.95:1,land&&!cloud&&hash(Math.round(lon*9),Math.round(lat*9),717)>.72?'ember':null];
+    },
+    mars:(lat,lon)=>[Math.abs(lat)>.8?'moon':noise(lon*2.2,lat*3,718)>.6?'earth':'rust',.9+.1*noise(lon*5,lat*5,719)],
+    jupiter:(lat,lon)=>{
+      const band=Math.sin(lat*11+.8),i=Math.floor((lat+1)*5.5),spot=Math.abs(lat+.24)<.12&&Math.abs(((lon%TAU)+TAU)%TAU-2.2)<.34;
+      return [spot?'rust':Math.abs(lat)<.14?'cream':i%2?'canvas':'deer',(.84+.16*Math.abs(band))*(.9+.1*noise(lon*4,lat*12,724))];
+    },
+    saturn:(lat)=>[Math.floor((lat+1)*4.5)%2?'gold':'canvas',.9+.1*Math.abs(Math.sin(lat*9))],
+    uranus:(lat)=>['cyan',.92+.08*Math.sin(lat*7)],
+    neptune:(lat,lon)=>{
+      const storm=Math.abs(lat-.2)<.14&&Math.abs(((lon%TAU)+TAU)%TAU-1.5)<.36,wisp=Math.abs(lat+.35)<.06&&noise(lon*4,0,725)>.62;
+      return [wisp?'moon':'indigo',storm?.55:1];
+    },
+  };
   // Signpost lettering gets its own larger glyph sheets so the links stay
   // legible on a phone. Boards are listed top to bottom; y is each board's
   // lower edge above the post's foot, len and h its size in world units.
@@ -41,6 +124,8 @@
   const FLY_ROWS = [-96,-68,-40,-12];
   const SPRITES = {
     dog:[' /\\   ','(o)__ ',' /##\\~',' | |  '],
+    // Mirrored, for when it runs the other way.
+    dogRight:['   /\\ ',' __(o)','~/##\\ ','  | | '],
     // A ridge tent seen three-quarters: the front, with a lantern in its
     // doorway, on the left and the roof running back to the right.
     tent:['   ______','  /\\     \\',' /*.\\     \\','/_/\\_\\_____\\'],
@@ -99,6 +184,12 @@
     return mix(mix(hash(ix, iz, salt), hash(ix + 1, iz, salt), u), mix(hash(ix, iz + 1, salt), hash(ix + 1, iz + 1, salt), u), v);
   }
   function fbm(x, z) { return noise(x, z, 2) * .62 + noise(x * 2.1, z * 2.1, 6) * .26 + noise(x * 4.3, z * 4.3, 9) * .12; }
+  // A point on an orrery orbit: a circle of radius a, leaning `tilt` about
+  // the node line at `node`, in a world where y is up.
+  function orbit(p, angle) {
+    const ca=Math.cos(angle),sa=Math.sin(angle),cn=Math.cos(p.node),sn=Math.sin(p.node),ci=Math.cos(p.tilt),si=Math.sin(p.tilt);
+    return [p.a*(ca*cn-sa*sn*ci), p.a*sa*si, p.a*(ca*sn+sa*cn*ci)];
+  }
   const riverX = z => 8 + 10 * Math.sin((z + 14) * .037) + z * .045;
   // The river stays slim in the foreground, leaving phones meadow to see.
   const riverWidth = z => 4.2 + smooth(-10, 65, z) * 5.5 + 2.4*Math.exp(-Math.pow((z+1)/11,2));
@@ -123,7 +214,40 @@
   class RiverKeep {
     constructor(canvas, content) {
       this.canvas = canvas;
-      this.ctx = canvas.getContext('2d', { alpha: true });
+      // The glyph engine (themes/glyphs-gl.js) batches every glyph of a
+      // frame into a few WebGL draw calls; without WebGL, or with ?gl=0,
+      // the same drawing goes through a 2D context one call at a time.
+      // `ctx` is the 2D context being drawn to: the canvas's own without
+      // the engine, a bake's offscreen one while a layer is baked, and
+      // null otherwise, which is when the engine draws.
+      this.gl=null;this.ctx=null;this.shiftY=0;this.staticClip=null;this.craneAt=0;
+      // While a crane layer is drawn, only the band of it the screen can
+      // show before the next redraw is worth drawing: `cull` is that band
+      // ({top, bottom} in page pixels) and blit() and drawWorld() skip the
+      // rest. Null means draw everything.
+      this.cull=null;
+      // The crane's two layers are double-buffered: the front of each is
+      // shown while its back is redrawn over a few frames, then they swap.
+      // On a touch device (a phone, slower than a desktop by about six
+      // times, Oct 27 2026) the redraws are cut into smaller jobs.
+      this.skyFront='sky';this.skyBack='sky2';this.groundFront='ground';this.groundBack='ground2';this.crane=null;
+      this.touch=matchMedia('(pointer:coarse)').matches;
+      // How finely the crane cuts its work (see render), learned on the
+      // device and kept for the session; the display's frame interval,
+      // measured from the animation loop.
+      let level=null;
+      try {level=sessionStorage.getItem('riverkeep-crane');} catch(e) {}
+      this.craneLevel=level!==null?+level:(this.touch?1:0);
+      this.frameInterval=1000/60;
+      if(window.GlyphGL&&new URLSearchParams(location.search).get('gl')!=='0') {
+        try {this.gl=new GlyphGL(canvas);} catch(e) {
+          // A canvas that has handed out a WebGL context cannot give a 2D
+          // one; the fallback starts on a fresh canvas.
+          const fresh=canvas.cloneNode();canvas.replaceWith(fresh);this.canvas=canvas=fresh;
+        }
+        if(this.gl) this.gl.onrestore=()=>{this.staticKey='';this.staticClip=null;};
+      }
+      if(!this.gl) this.ctx=canvas.getContext('2d', { alpha: true });
       this.content = content;
       this.time = 0;
       this.detail = 'fine';
@@ -135,9 +259,15 @@
       this.ripples = [];
       this.sparks = [];
       this.nextMeteor = 4;
+      this.shower = null;
+      this.nextShower = SHOWER.first[0]+Math.random()*(SHOWER.first[1]-SHOWER.first[0]);
       this.fish = [];
       this.drops = [];
       this.nextLeap = 5;
+      // Animals' reactions to a tap, while they run.
+      this.dogSpin = null;
+      this.ponyFuss = null;
+      this.rabbitHop = null;
       this.satellite = null;
       this.nextSatellite = 15;
       this.sky = 'new';
@@ -154,6 +284,14 @@
       this.waterOut = { g:0,p:0,b:0 };
       this.makeWorld();
       this.resize();
+      // The opening plays on each new visit; a reload in the same tab goes
+      // straight to the scene. ?intro=1 forces it and ?intro=0 skips it.
+      // Session storage can throw on iOS, so it is only ever tried.
+      const wants=new URLSearchParams(location.search).get('intro');
+      let seen=false;
+      try {seen=sessionStorage.getItem('riverkeep-intro')==='1';sessionStorage.setItem('riverkeep-intro','1');} catch(e) {}
+      if(wants!=='0'&&(wants==='1'||!seen)) this.startIntro();
+      else setTimeout(()=>this.prepareSky(),1200);
     }
 
     project(x, y, z) {
@@ -400,6 +538,8 @@
         pony:{x:-27,z:18},rabbit:{x:-22,z:52},
       };
       for(const animal of Object.values(this.wildlife))animal.y=height(animal.x,animal.z)+.12;
+      this.wildlife.rabbit.home=this.wildlife.rabbit.x;
+      this.dogNow={hop:0,stride:false,wag:false,right:false};
       for (let i = 0; i < 17; i++) {
         const z = 5 + hash(i, 48) * 53, side = i % 2 ? 1 : -1;
         const x = riverX(z) + side * (riverWidth(z) + .4 + hash(i, 50) * 2.5);
@@ -531,7 +671,7 @@
       if(r.state==='away') {
         // Set out only from a standstill, along a clear straight line.
         r.wait-=dt;
-        if(r.wait>0||fig.state!=='idle')return;
+        if(r.wait>0||fig.state!=='idle'||fig.cued)return;
         const length=Math.hypot(r.spot.x-fig.x,r.spot.z-fig.z);
         let clear=true;
         for(let s=.5;s<length&&clear;s+=.5)clear=r.world.walkable(mix(fig.x,r.spot.x,s/length),mix(fig.z,r.spot.z,s/length));
@@ -542,9 +682,10 @@
         if(Math.hypot(fig.x-r.spot.x,fig.z-r.spot.z)<.6) {r.state='reading';r.timer=7+fig.random()*5;fig.timer=Infinity;}
         else {r.state='away';r.wait=8;}
       } else {
-        // Turn to the boards, read a while, then wander home.
+        // Turn to the boards, read a while, then wander home. A wave to
+        // the viewer turns them away for a moment.
         const turn=r.face-fig.heading,delta=Math.atan2(Math.sin(turn),Math.cos(turn));
-        fig.heading+=clamp(delta,-1.8*dt,1.8*dt);
+        if(fig.face==null) fig.heading+=clamp(delta,-1.8*dt,1.8*dt);
         r.timer-=dt;
         if(r.timer<=0) {r.state='away';r.wait=30+fig.random()*25;fig.timer=0;}
       }
@@ -566,7 +707,7 @@
       trip.timer-=dt;
       if(trip.state==='home') {
         // The route takes over from any stroll in progress.
-        if(trip.timer<=0) {fig.route=trip.out.map(p=>({...p}));trip.state='out';}
+        if(trip.timer<=0&&!fig.cued) {fig.route=trip.out.map(p=>({...p}));trip.state='out';}
       } else if(trip.state==='out') {
         if(!fig.route.length) {fig.route=null;fig.hidden=true;fig.speed=0;trip.state='inside';trip.timer=55+Math.random()*15;}
       } else if(trip.state==='inside') {
@@ -633,25 +774,30 @@
     }
 
     resize() {
-      this.dpr = Math.min(devicePixelRatio || 1, 2);
+      // The engine's baked layers are textures, so on a huge display the
+      // density drops to keep the canvas within what the GPU can hold.
+      this.dpr = Math.min(devicePixelRatio || 1, 2, this.gl ? this.gl.maxTexture / (Math.max(innerWidth, innerHeight * 1.2)) : Infinity);
       this.W = innerWidth;
       const probe = document.createElement('div');
       probe.style.cssText = 'position:fixed;height:100lvh;width:0;visibility:hidden;';
       document.body.appendChild(probe);
       const ios = CSS.supports('-webkit-touch-callout', 'none');
       this.H = Math.max(innerHeight, probe.offsetHeight, ios ? screen.height : 0) + (ios ? 80 : 0);
+      // On iOS the first 80px of the canvas are the parked runway behind
+      // the status bar; the visible page starts below them.
+      this.topInset = ios ? 80 : 0;
       probe.remove();
       this.canvas.width = Math.round(this.W * this.dpr);
       this.canvas.height = Math.round(this.H * this.dpr);
       this.canvas.style.width = this.W + 'px';
       this.canvas.style.height = this.H + 'px';
-      this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      if(this.ctx) this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       // Detail changes the sampling grid, never the world's camera scale.
       // A finer grid therefore adds geometry samples without shrinking it.
       this.font = this.detail==='fine' ? 6.5 : 8;
       this.cw = this.detail==='fine' ? 4 : 5;
       this.ch = this.detail==='fine' ? 7 : 9;
-      this.ctx.imageSmoothingEnabled = false;
+      if(this.ctx) this.ctx.imageSmoothingEnabled = false;
       this.cols = Math.ceil(this.W / this.cw);
       this.rows = Math.ceil(this.H / this.ch);
       this.n = this.cols * this.rows;
@@ -667,23 +813,72 @@
       this.makeAtlas();
       this.sampleWorld();
       this.buildSky();
+      const hadSky=!!this.space;
+      this.freeSky();
+      if(this.intro||hadSky) this.prepareSky();
       // iOS keeps a replaced canvas's backing store until GC; zeroing it
       // hands the memory back now, so repeated resizes cannot pile up.
       if(this.staticCanvas) this.staticCanvas.width=this.staticCanvas.height=0;
-      this.staticCanvas = document.createElement('canvas');
-      this.staticCanvas.width = this.canvas.width; this.staticCanvas.height = this.canvas.height;
-      this.staticContext = this.staticCanvas.getContext('2d', {alpha:true});
-      this.staticContext.setTransform(this.dpr,0,0,this.dpr,0,0);
-      this.staticContext.imageSmoothingEnabled = false;
+      if(this.gl) {this.gl.free(this.staticClip);this.staticClip=null;}
+      else {
+        this.staticCanvas = document.createElement('canvas');
+        this.staticCanvas.width = this.canvas.width; this.staticCanvas.height = this.canvas.height;
+        this.staticContext = this.staticCanvas.getContext('2d', {alpha:true});
+        this.staticContext.setTransform(this.dpr,0,0,this.dpr,0,0);
+        this.staticContext.imageSmoothingEnabled = false;
+      }
       this.staticKey = '';
       this.placeSign();
+      this.warm();
+      this.canvas.dataset.engine = this.gl ? 'webgl' : '2d';
       this.canvas.dataset.grid = `${this.cols}x${this.rows} cell=${this.cw.toFixed(2)}x${this.ch.toFixed(2)} dpr=${this.dpr}`;
       this.canvas.dataset.detail = this.detail;
       this.canvas.dataset.view = `crop=${this.view.x},${this.view.y} scale=${VIEW.scale} font=${this.font}`;
     }
+    // The engine makes a texture of a canvas the first time it draws it,
+    // and the main atlas is a big one; uploading them all while nothing
+    // moves keeps that off the first frame of the scene (a 55 ms spike on
+    // the first frame of the descent, Oct 26 2026).
+    warm() {
+      if(!this.gl) return;
+      for(const sheet of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas,this.meteorAtlas,this.orbAtlas]) if(sheet) this.gl.texture(sheet.canvas);
+      for(const canvas of [this.hazeCanvas,this.space&&this.space.haze]) if(canvas&&canvas.width) this.gl.texture(canvas);
+      // The static world's batch is recorded here too, off the first frame
+      // that shows the scene, and the crane's two layers are made with the
+      // sky, off the crane's first frame (40 ms there at 4x throttling).
+      if(this.stillCells) this.recordStatic();
+      if(this.space) {
+        const gl=this.gl,W=this.canvas.width,H=this.canvas.height,T=Math.round(this.space.travel*this.dpr);
+        const sky=gl.layer(this.skyBack,W,T)&&gl.layer(this.skyFront,W,T);
+        const ground=sky&&gl.layer(this.groundBack,W,H)&&gl.layer(this.groundFront,W,H);
+        // Both are drawn once now, unseen: the crane's first frame was the
+        // scene's first draw of the page load, and ran four times slower
+        // than the frames after it while the browser compiled it.
+        if(ground&&!this.ctx) {
+          // The scene's step is run once too, for the same reason; with
+          // no time passing it changes nothing.
+          if(this.intro&&this.time===0) this.update(0);
+          if(this.intro) {gl.target(sky,BG_RGB);this.drawSpace(true);}
+          gl.target(ground,BG_RGB);this.drawScene();
+          gl.target(null);
+        }
+      }
+    }
+    // The engine keeps the static world as a recorded batch, drawn again
+    // from the GPU each frame and recorded again only when the moonlight
+    // has moved. It is recorded unshifted and played with the crane's shift.
+    recordStatic() {
+      const key=String(Math.round(this.moonlight*18));
+      if(this.staticKey===key&&this.staticClip) return;
+      const shift=this.shiftY,cull=this.cull;this.shiftY=0;this.cull=null;
+      this.gl.free(this.staticClip);
+      this.gl.record();this.drawWorld(true);this.staticClip=this.gl.endRecord();
+      this.shiftY=shift;this.cull=cull;this.staticKey=key;
+    }
     makeAtlas() {
-      for(const old of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas]) if(old) old.canvas.width=old.canvas.height=0;
+      for(const old of [this.atlas,this.actorAtlas,this.fishAtlas,this.folkAtlas,this.ponyHeadAtlas,this.signAtlas,this.signTitleAtlas,this.flyAtlas,this.flyTitleAtlas,this.navAtlas]) if(old) old.canvas.width=old.canvas.height=0;
       this.atlas=this.buildAtlas(this.font,this.cw,this.ch,PALETTE_NAMES);
+      this.navAtlas=this.buildAtlas(NAV.font,NAV.cw,NAV.ch,['canvas'],700,' ^v');
       // Actors get a small, separate glyph sheet. Their font and spacing
       // stay fixed across viewports and terrain-detail settings.
       this.actorAtlas=this.buildAtlas(ACTOR.font,ACTOR.cw,ACTOR.ch,['deer','cream'],600);
@@ -718,7 +913,7 @@
       c.textAlign = 'center'; c.textBaseline = 'middle';
       for (let warmth = 0; warmth < 2; warmth++) for (let p = 0; p < names.length; p++) for (let l = 0; l < LEVELS; l++) {
         c.font = `${weight||(['stone','rock','star','moon','fire','ember'].includes(names[p])?700:400)} ${font * d}px ${FONT}`;
-        const rgb = COLORS[names[p]], b = .17 + l / (LEVELS - 1) * 1.03;
+        const rgb = COLORS[names[p]]||SPACE_COLORS[names[p]], b = .17 + l / (LEVELS - 1) * 1.03;
         const row = (warmth * names.length + p) * LEVELS + l;
         const ox=Math.floor(row/perBand)*span,oy=row%perBand*ah;
         const tint = warmth ? [1.32, .99, .57] : [1, 1, 1];
@@ -728,11 +923,20 @@
       }
       return {canvas:cv,aw,ah,cw,ch,span,perBand,names,index:Object.fromEntries([...chars].map((c,i)=>[c,i])),palette:Object.fromEntries(names.map((name,i)=>[name,i]))};
     }
-    blit(sheet,g,row,x,y,cw,ch,turn=0) {
-      const sx=Math.floor(row/sheet.perBand)*sheet.span+g*sheet.aw,sy=row%sheet.perBand*sheet.ah;
-      if(!turn) {this.ctx.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*this.dpr)/this.dpr,Math.round((y-ch/2)*this.dpr)/this.dpr,cw,ch);return;}
-      // A turned glyph rotates about its cell's centre.
+    blit(sheet,g,row,x,y,cw,ch,turn=0,alpha=1) {
+      if(this.cull&&(y<this.cull.top-ch||y>this.cull.bottom+ch)) return;
+      const sx=Math.floor(row/sheet.perBand)*sheet.span+g*sheet.aw,sy=row%sheet.perBand*sheet.ah,d=this.dpr;
+      if(this.gl&&!this.ctx) {
+        // The engine takes device pixels: an upright glyph snaps to whole
+        // ones as the 2D path does, a turned one spins about its centre.
+        if(!turn) this.gl.glyph(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*d),Math.round((y-ch/2)*d)+Math.round(this.shiftY*d),cw*d,ch*d,alpha);
+        else this.gl.turned(sheet.canvas,sx,sy,sheet.aw,sheet.ah,x*d,(y+this.shiftY)*d,cw*d,ch*d,turn,alpha);
+        return;
+      }
       const c=this.ctx;
+      c.globalAlpha=alpha;
+      if(!turn) {c.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,Math.round((x-cw/2)*d)/d,Math.round((y-ch/2)*d)/d,cw,ch);return;}
+      // A turned glyph rotates about its cell's centre.
       c.save();c.translate(x,y);c.rotate(turn);
       c.drawImage(sheet.canvas,sx,sy,sheet.aw,sheet.ah,-cw/2,-ch/2,cw,ch);
       c.restore();
@@ -743,17 +947,36 @@
       const l = Math.round(clamp(brightness*1.18+.025) * (LEVELS - 1));
       const p=typeof palette==='string'?PAL[palette]:palette;
       const row=(p+(warm?PALETTE_NAMES.length:0))*LEVELS+l;
-      this.ctx.globalAlpha = alpha;
-      this.blit(this.atlas,g,row,x,y,this.cw,this.ch);
+      this.blit(this.atlas,g,row,x,y,this.cw,this.ch,0,alpha);
     }
     sheetGlyph(g,palette,brightness,x,y,warm,alpha,sheet,turn=0) {
       if(!g||alpha<.015||brightness<.025)return;
       const l=Math.round(clamp(brightness*1.18+.025)*(LEVELS-1));
       const p=sheet.palette[typeof palette==='string'?palette:PALETTE_NAMES[palette]];
       const row=(p+(warm?sheet.names.length:0))*LEVELS+l;
-      this.ctx.globalAlpha=alpha;
-      this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch,turn);
+      this.blit(sheet,g,row,x,y,sheet.cw,sheet.ch,turn,alpha);
     }
+    // Everything that is not a glyph goes through these, so the engine and
+    // the 2D context draw the same frame: a background-coloured rectangle,
+    // a baked layer, a soft radial halo (`rgb` is a colour triple), and the
+    // crane's vertical shift of everything drawn until unshift().
+    rect(x,y,w,h,alpha=1) {
+      if(this.gl&&!this.ctx) {const d=this.dpr;this.gl.rect(x*d,(y+this.shiftY)*d,w*d,h*d,BG_RGB[0],BG_RGB[1],BG_RGB[2],alpha);return;}
+      const c=this.ctx;c.globalAlpha=alpha;c.fillStyle=BG;c.fillRect(x,y,w,h);
+    }
+    image(canvas,x,y,w,h) {
+      if(this.gl&&!this.ctx) {const d=this.dpr;this.gl.image(canvas,x*d,(y+this.shiftY)*d,w*d,h*d);return;}
+      this.ctx.globalAlpha=1;this.ctx.drawImage(canvas,x,y,w,h);
+    }
+    halo(x,y,r,rgb,a,mid,stop) {
+      if(this.cull&&(y+r<this.cull.top||y-r>this.cull.bottom)) return;
+      if(this.gl&&!this.ctx) {const d=this.dpr;this.gl.halo(x*d,(y+this.shiftY)*d,r*d,rgb[0]/255,rgb[1]/255,rgb[2]/255,a,mid,stop);return;}
+      const c=this.ctx,g=c.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,`rgba(${rgb},${a})`);g.addColorStop(stop,`rgba(${rgb},${mid})`);g.addColorStop(1,`rgba(${rgb},0)`);
+      c.globalAlpha=1;c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2);
+    }
+    shift(dy) {this.shiftY=dy;if(this.ctx) {this.ctx.save();this.ctx.translate(0,dy);}}
+    unshift() {this.shiftY=0;if(this.ctx) this.ctx.restore();}
     placeSign() {
       // The links are invisible hit areas laid over their projected boards
       // or firefly words. Canvas pixels are page pixels (the canvas sits at
@@ -971,6 +1194,11 @@
         this.light[k] = best; this.lightIndex[k] = index;
         this.dynamic[k] = m===MAT.water || m===MAT.warm || best>.05 || this.signCell[k]>=0 ? 1 : 0;
       }
+      // The cells each pass draws, listed once: a frame then walks the
+      // ~1,500 animated cells rather than the whole grid of ~50,000.
+      const live=[],still=[];
+      for(let k=0;k<this.n;k++) {if(this.material[k]===MAT.sky) continue;(this.dynamic[k]?live:still).push(k);}
+      this.liveCells=Int32Array.from(live);this.stillCells=Int32Array.from(still);
       for(const flower of this.flowers)flower.warm=this.light[flower.k];
     }
     // Every grass cell holds a blade, laid over by one still gust so the
@@ -1013,7 +1241,7 @@
       // Shooting stars and satellites use a larger, bold sheet so a brief
       // streak still reads at a glance.
       if(this.meteorAtlas) this.meteorAtlas.canvas.width=this.meteorAtlas.canvas.height=0;
-      this.meteorAtlas=this.buildAtlas(9,5.5,9,['star','cream','ember'],700,' .+*@-/\\');
+      this.meteorAtlas=this.buildAtlas(9,5.5,9,['star','cream','ember'],700,' .+*@-/\\|');
       // The Milky Way's unresolved light is drawn as faint characters, never
       // painted: dots thicken toward the core and the dust lanes are gaps.
       // A sparse ring of dots haloes the moon. All of it is static, so it is
@@ -1058,6 +1286,385 @@
         const g=b>.85?'*':b>.62?'+':inBand&&hash(gx,gy,106)>.8?"'":'.';
         const p=inBand?(tint<.45?'lilac':tint<.55?'cream':'star'):(tint<.1?'blue':tint<.17?'cream':'star');
         this.stars.push({x,y,b,g:GI[g],p:PAL[p],phase:hash(gx,gy,107)*TAU,rate:.6+hash(gx,gy,108)*2.2,scint:hash(gx,gy,109)>.94,s:band.s,glow:band.light,band:inBand});
+      }
+    }
+
+    // The opening sequence. The sky carries on above the scene as one
+    // column: the orrery hangs in it, and on a tap the camera cranes down
+    // the column to settle on the scene at exactly its usual framing.
+    // The opening starts at the orrery and comes down by itself; a visit
+    // from the scene's chevron starts at the scene, cranes up, and then
+    // waits for the visitor.
+    startIntro(from='sky') {
+      if(this.reduced) return;
+      this.endIntro();
+      const up=from==='scene';
+      this.intro={phase:up?'ascend':'hold',auto:!up,t:0,clock:0,dt:0,scroll:0,shift:0,timeAtStart:this.time};
+      this.prepareSky();
+      // The signpost's links wait for the camera to arrive.
+      for(const link of this.content.querySelectorAll('[data-board]')) link.style.visibility='hidden';
+    }
+    advanceIntro() {
+      const intro=this.intro;
+      if(intro&&intro.phase==='hold') {intro.phase='descend';intro.t=0;}
+    }
+    ascend() {
+      if(!this.intro) this.startIntro('scene');
+    }
+    endIntro() {
+      const intro=this.intro;
+      if(!intro) return;
+      this.intro=null;this.crane=null;
+      // The orrery and the sky above stay built for the next visit by
+      // chevron, so it starts without a stall (150 ms on the tap when they
+      // were rebuilt each time, Oct 27 2026); a resize rebuilds them.
+      for(const link of this.content.querySelectorAll('[data-board]')) link.style.visibility='';
+      // The first meteor shower counts from the scene's arrival.
+      this.nextShower+=this.time-intro.timeAtStart;
+    }
+    setCraneLevel(level) {
+      this.craneLevel=level;
+      try {sessionStorage.setItem('riverkeep-crane',String(level));} catch(e) {}
+    }
+    // Builds the orrery and the sky above the scene unless they are built.
+    // Opened without the opening, the page builds them a moment later so
+    // the first visit by chevron is ready too.
+    prepareSky() {
+      if(this.reduced||this.disposed||this.space) return;
+      this.makeOrrery();
+      this.buildSpace();
+      this.warm();
+    }
+    // Hands the sky's canvases, and the crane's layers, back now rather
+    // than at GC (see resize).
+    freeSky() {
+      if(this.space&&this.space.haze) this.space.haze.width=this.space.haze.height=0;
+      if(this.orbAtlas) {this.orbAtlas.canvas.width=this.orbAtlas.canvas.height=0;this.orbAtlas=null;}
+      if(this.gl) this.gl.freeLayers();
+      this.space=null;this.orrery=null;
+    }
+    stepIntro(dt) {
+      const intro=this.intro;
+      intro.t+=dt;intro.clock+=dt;intro.dt=dt;
+      if(intro.phase==='hold') this.crane=null;
+      // k is how far down the camera is: 0 at the orrery, 1 at the scene.
+      let k=0;
+      if(intro.phase!=='hold') {const u=clamp(intro.t/INTRO.descend),e=u*u*u*(u*(u*6-15)+10);k=intro.phase==='descend'?e:1-e;}
+      // The scene shifts down by whole device pixels so its glyphs stay crisp.
+      const travel=this.space.travel;
+      intro.shift=Math.round((1-k)*travel*this.dpr)/this.dpr;
+      intro.scroll=travel-intro.shift;
+      if(intro.phase==='descend'&&intro.t>=INTRO.descend) this.endIntro();
+      else if(intro.phase==='ascend'&&intro.t>=INTRO.descend) {intro.phase='hold';intro.t=0;}
+      else if(intro.phase==='hold'&&intro.auto&&intro.t>=INTRO.hold) this.advanceIntro();
+    }
+    buildSpace() {
+      // The sky above the scene, for the crane down. It follows the same
+      // rules on the same scene-pixel grid, carried on upward, so the
+      // descent reads as one sky with no seam at the scene's top edge. The
+      // drop is a whole number of cell rows (a multiple of four, so it is
+      // also whole device pixels at common zoom levels). Above the seam,
+      // and only there, the Milky Way is sheared sideways so that it passes
+      // behind the sun rather than leaving at the top left: on a wide
+      // screen it arcs through, on a phone it swings round and runs
+      // straight up through the sun, filling the tall sky above and below
+      // the system. The shear starts flat at the seam, so the join is
+      // invisible; on a phone its slope grows to cancel the band's own
+      // heading by the sun's height and holds there.
+      const space=this.space={haze:null,stars:[],travel:0},o=this.orrery,cols=this.cols,cw=this.cw,ch=this.ch;
+      const rows=Math.ceil(this.H*INTRO.travel/ch/4)*4,travel=rows*ch,top=this.view.y;
+      space.travel=travel;
+      const m=this.skyLayout.band,vy0=o.cy-travel+top,rise=top-vy0,k=m.cos/m.sin,sunX=o.cx+this.view.x;
+      let shear=()=>0;
+      if(o.portrait&&rise>200) {
+        const c=sunX-(m.x+(top-m.y)*k)+k*rise/2;
+        shear=r=>{const u=r/rise;return k*rise*(u<1?u*u*u*(1-u/2):u-.5)+c*smooth(0,1,u);};
+      } else if(rise>200) {
+        const bend=(sunX-(m.x+(vy0-m.y)*k))/(rise*rise);
+        shear=r=>bend*r*r;
+      }
+      // The band also thins out close behind the sun, so the inner planets
+      // stay legible against it; it is well clear of the seam.
+      const band=(vx,vy)=>{
+        const b=this.milkyWay(vx-shear(Math.max(0,top-vy)),vy);
+        const clear=.3+.7*smooth(.25,.7,Math.hypot((vx-this.view.x-o.cx)/o.R,(vy-vy0)/(o.R*o.P.sp)));
+        b.light*=clear;b.core*=clear;
+        return b;
+      };
+      const canvas=space.haze=document.createElement('canvas');
+      canvas.width=Math.round(this.W*this.dpr);canvas.height=Math.round(travel*this.dpr);
+      const c=canvas.getContext('2d'),main=this.ctx;
+      c.setTransform(this.dpr,0,0,this.dpr,0,0);c.imageSmoothingEnabled=false;
+      this.ctx=c;
+      c.shadowColor='rgba(160,150,220,.6)';c.shadowBlur=3*this.dpr;
+      for(let j=0;j<rows;j++) for(let i=0;i<cols;i++) {
+        const sx=(i+.5)*cw,sy=(j+.5)*ch,gi=i+this.gridX,gj=j-rows+this.gridY;
+        const pick=hash(gi,gj,420),tint=hash(gi,gj,421);
+        const b=band(sx+this.view.x,sy-travel+top),light=b.light;
+        if(light<.06||pick>smooth(.04,.85,light)*.95) continue;
+        const g=light>.7&&tint>.5?':':light>.4&&tint>.55?"'":tint>.85?'`':'.';
+        const p=b.core>.45&&tint<.35?'cream':light<.3&&tint>.6?'blue':'lilac';
+        this.glyph(GI[g],p,.16+light*.32+b.core*.14,sx,sy);
+      }
+      this.ctx=main;
+      const step=9,from=top-travel;
+      for(let gy=Math.floor(from/step);gy<=Math.ceil(top/step);gy++) for(let gx=Math.floor(this.view.x/step);gx<=Math.ceil((this.view.x+this.W)/step);gx++) {
+        const vx=gx*step+hash(gx,gy,101)*step,vy=gy*step+hash(gx,gy,102)*step,x=vx-this.view.x,y=vy-from;
+        if(x<0||x>=this.W||y<0||y>=travel) continue;
+        const b=band(vx,vy),pick=hash(gx,gy,103);
+        if(pick>.032+b.light*.6+b.core*.35) continue;
+        const inBand=pick>.032,mag=hash(gx,gy,104),tint=hash(gx,gy,105);
+        const bright=inBand?.16+Math.pow(mag,3)*.6+b.core*.15:.25+Math.pow(mag,2.2)*.8;
+        const g=bright>.85?'*':bright>.62?'+':inBand&&hash(gx,gy,106)>.8?"'":'.';
+        const p=inBand?(tint<.45?'lilac':tint<.55?'cream':'star'):(tint<.1?'blue':tint<.17?'cream':'star');
+        space.stars.push({x,y,b:bright,g:GI[g],p:PAL[p],phase:hash(gx,gy,107)*TAU,rate:.6+hash(gx,gy,108)*2.2,scint:hash(gx,gy,109)>.94,s:b.s,glow:b.light});
+      }
+    }
+    makeOrrery() {
+      // The orrery sits in the middle of the visible page (below the parked
+      // runway on iOS). A wide screen fits Neptune's orbit; a phone is
+      // sized by its height instead, so the system fills the screen and the
+      // outer planets swing off the sides and back, rather than a small
+      // chart in a strip across the middle. Everything in it goes through
+      // one small depth-tested cell grid, so the sun hides the far side of
+      // the orbits, planets pass behind and in front of it, and Saturn's
+      // ring wraps its globe. The grid reaches past Neptune for the comet's
+      // tail, and stops at the screen's edges.
+      const ios=CSS.supports('-webkit-touch-callout','none'),top=ios?80:0,visible=this.H-top,portrait=this.W<visible;
+      const R=portrait?Math.min(visible*.4,340):Math.min(this.W*.44,visible*.4,340),pitch=INTRO.pitch;
+      const P={cy:1,sy:0,cp:Math.cos(pitch),sp:Math.sin(pitch)};
+      const cx=this.W/2,cy=top+visible*.44,hx=R*1.3,hy=R*(P.sp*1.3+.16);
+      const x0=Math.max(cx-hx,-ORB.cw),y0=Math.max(cy-hy,-ORB.ch);
+      const cols=Math.ceil((Math.min(cx+hx,this.W+ORB.cw)-x0)/ORB.cw),rows=Math.ceil((Math.min(cy+hy,this.H+ORB.ch)-y0)/ORB.ch),n=cols*rows;
+      if(this.orbAtlas) this.orbAtlas.canvas.width=this.orbAtlas.canvas.height=0;
+      this.orbAtlas=this.buildAtlas(ORB.font,ORB.cw+ORB.pad,ORB.ch+ORB.pad,ORB_PALETTES,700,ORB_GLYPHS,ORB.glow);
+      // Asteroids keep Kepler's rule of thumb: the farther out, the slower.
+      const belt=[],{inner,outer,count,period}=ORRERY.belt;
+      for(let i=0;i<count;i++) {
+        const a=mix(inner,outer,hash(i,901));
+        belt.push({a,angle:hash(i,902)*TAU,rate:TAU/(period*Math.pow(a/inner,1.5)),y:(hash(i,903)-.5)*.03,b:.16+hash(i,904)*.3,g:hash(i,905)>.75?',':'.'});
+      }
+      const cue=matchMedia('(pointer:fine)').matches?'click to come down':'tap to come down';
+      this.orrery={R,P,cx,cy,x0,y0,portrait,cueY:Math.min(cy+R*P.sp+72,top+visible-138),cols,rows,n,depth:new Float32Array(n),glyph:new Uint8Array(n),pal:new Uint8Array(n),bright:new Float32Array(n),turn:new Float32Array(n),belt,cue};
+    }
+    orbGlyph(g,p,b,x,y,turn=0) {
+      if(b<.025) return;
+      const sheet=this.orbAtlas,l=Math.round(clamp(b*1.18+.025)*(LEVELS-1));
+      this.blit(sheet,g,p*LEVELS+l,x,y,sheet.cw,sheet.ch,turn,1);
+    }
+    drawSpace(whole=false,part=15) {
+      // The column above the scene, in its own coordinates (the caller
+      // shifts it by the crane's scroll): baked haze and the twinkling
+      // stars (part 1), then the orrery's stages (parts 2, 4 and 8, see
+      // drawOrrery). Only the window the scroll shows is drawn, or the
+      // whole column for a layer.
+      const intro=this.intro,space=this.space,t=intro.clock,scroll=whole?0:intro.scroll,ch=this.ch,cull=this.cull;
+      const low=whole?(cull?cull.top:-Infinity):scroll-ch,high=whole?(cull?cull.bottom:Infinity):scroll+this.H+ch;
+      if(part&1) {
+      this.image(space.haze,0,0,this.W,space.travel);
+      for(const star of space.stars) {
+        if(star.y<low||star.y>high) continue;
+        const twinkle=star.scint?.55+Math.pow(.5+.5*Math.sin(t*star.rate*2.6+star.phase),3)*.75:.8+Math.sin(t*star.rate+star.phase)*.2;
+        const shimmer=1+star.glow*.45*Math.sin(star.s*.016-t*.55);
+        this.glyph(star.g,star.p,star.b*twinkle*shimmer,star.x,star.y);
+      }
+      }
+      const o=this.orrery;
+      const stages=(part>>1)&7;
+      if(stages&&o.y0+o.rows*ORB.ch>low&&o.y0<high) this.drawOrrery(t,stages);
+    }
+    // While the orrery waits: the prompt on the opening visit, and the
+    // chevron that comes down on every visit. Drawn on the screen, not in
+    // the sky's layer, so the layer is ready for the crane as it is.
+    drawHoldCue() {
+      const intro=this.intro,t=intro.clock;
+      if(intro.auto&&t>INTRO.cue) this.drawCue(t);
+      this.drawNav('down',intro.auto?smooth(INTRO.cue,INTRO.cue+1.2,t):smooth(0,.6,intro.t),t);
+    }
+    // The crane's chevrons: one at the top of the scene goes up to the
+    // solar system, one at the bottom of the solar system comes down. They
+    // pulse like the prompt and sit where a thumb reaches, clear of the
+    // phone's status bar above and the browser's controls below.
+    navAt(kind) {
+      const top=this.topInset,visible=this.H-top;
+      return {x:this.W/2,y:kind==='up'?top+30:top+visible-108};
+    }
+    drawNav(kind,fade,t) {
+      const sheet=this.navAtlas;
+      if(!sheet||fade<=0) return;
+      const {x,y}=this.navAt(kind);
+      this.glyph(sheet.index[kind==='up'?'^':'v'],'canvas',.5+.22*Math.sin(t*2.2),x,y,false,fade,sheet);
+    }
+    // Which chevron a tap at px, py lands on, if any.
+    navHit(px,py) {
+      if(this.reduced) return null;
+      const kind=this.intro?(this.intro.phase==='hold'?'down':null):'up';
+      if(!kind) return null;
+      const {x,y}=this.navAt(kind);
+      return Math.abs(px-x)<NAV.reach&&Math.abs(py-y)<NAV.reach?kind:null;
+    }
+    drawCue(t) {
+      // A quiet prompt under the orrery, in the signpost's lettering, once
+      // the page has had a moment to itself.
+      const sheet=this.signTitleAtlas||this.flyTitleAtlas,pal=this.signTitleAtlas?'canvas':'fly';
+      if(!sheet) return;
+      const o=this.orrery,text=o.cue,fade=smooth(INTRO.cue,INTRO.cue+1.2,t),b=.5+.22*Math.sin(t*2.2);
+      const x0=o.cx-(text.length-1)/2*sheet.cw;
+      for(let i=0;i<text.length;i++) if(text[i]!==' ') this.glyph(sheet.index[text[i]],pal,b,x0+i*sheet.cw,o.cueY,false,fade,sheet);
+    }
+    // The orrery in three stages, so a crane can spread it over frames: 1
+    // clears the cell grid and puts in the sun and the belt, 2 the planets
+    // and the comet (the depth test makes the order free), 4 draws the
+    // grid. The halos go straight to the canvas as each stage reaches
+    // them, always under the glyphs, which come last.
+    drawOrrery(t,stages=7) {
+      const o=this.orrery,R=o.R,P=o.P,sheet=this.orbAtlas,G=sheet.index,PI=sheet.palette;
+      if(stages&1) {o.depth.fill(-1e9);o.glyph.fill(0);}
+      const proj=(x,y,z)=>({x:o.cx+(P.cy*x-P.sy*z)*R,y:o.cy+(P.sp*(P.sy*x+P.cy*z)-P.cp*y)*R,d:P.cp*(P.sy*x+P.cy*z)+P.sp*y});
+      // A world direction in screen terms (right, down, toward the viewer),
+      // and a screen-space normal back to the world.
+      const toScreen=([x,y,z])=>[P.cy*x-P.sy*z,P.sp*(P.sy*x+P.cy*z)-P.cp*y,P.cp*(P.sy*x+P.cy*z)+P.sp*y];
+      const toWorld=(x,y,z)=>[x*P.cy+y*P.sp*P.sy+z*P.cp*P.sy,-y*P.cp+z*P.sp,-x*P.sy+y*P.sp*P.cy+z*P.cp*P.cy];
+      const put=(x,y,d,g,p,b,turn=0)=>{
+        const i=Math.floor((x-o.x0)/ORB.cw),j=Math.floor((y-o.y0)/ORB.ch);
+        if(i<0||j<0||i>=o.cols||j>=o.rows) return;
+        const k=j*o.cols+i;
+        if(d<o.depth[k]) return;
+        o.depth[k]=d;o.glyph[k]=g;o.pal[k]=p;o.bright[k]=b;o.turn[k]=turn;
+      };
+      // Soft bloom under a body, painted before any glyph.
+      const halo=(x,y,r,rgb,a,mid,stop)=>this.halo(x,y,r,rgb,a,mid,stop);
+      const rgbOf=name=>COLORS[name]||SPACE_COLORS[name];
+      // A globe sampled into cells with its screen-space normal. A body
+      // smaller than a cell still shows as its centre cell.
+      const sphere=(s,r,shade)=>{
+        const rp=r*R;
+        const i0=Math.max(0,Math.floor((s.x-rp-o.x0)/ORB.cw)),i1=Math.min(o.cols-1,Math.floor((s.x+rp-o.x0)/ORB.cw));
+        const j0=Math.max(0,Math.floor((s.y-rp-o.y0)/ORB.ch)),j1=Math.min(o.rows-1,Math.floor((s.y+rp-o.y0)/ORB.ch));
+        let hit=false;
+        for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++) {
+          const px=o.x0+(i+.5)*ORB.cw,py=o.y0+(j+.5)*ORB.ch,dx=(px-s.x)/rp,dy=(py-s.y)/rp,rr=dx*dx+dy*dy;
+          if(rr>1) continue;
+          const nz=Math.sqrt(1-rr),cell=shade(dx,dy,nz,rr);
+          if(cell) {put(px,py,s.d+nz*r,cell[0],cell[1],cell[2]);hit=true;}
+        }
+        if(!hit) {const cell=shade(0,0,1,0);if(cell) put(s.x,s.y,s.d+r,cell[0],cell[1],cell[2]);}
+      };
+      const rs=ORRERY.sun.r,rsp=rs*R,sun=proj(0,0,0);
+      if(stages&1) {
+      // Faint sunlight across the whole plane ties the system together.
+      halo(sun.x,sun.y,R*1.15,[255,190,110],.08,.03,.5);
+      for(const a of o.belt) {const ang=a.angle+t*a.rate,s=proj(a.a*Math.cos(ang),a.y,a.a*Math.sin(ang));put(s.x,s.y,s.d,G[a.g],PI.stone,a.b);}
+      // The sun: a breathing bloom, a granulated disc that cools from cream
+      // to orange at the limb, short spikes all round and a few long
+      // streamers that drift and waver, all at the sun's own depth, so a
+      // planet behind it is lost in the glare and one in front crosses it
+      // as a dark disc.
+      const breath=.92+.08*Math.sin(t*2.3)+.04*Math.sin(t*5.1);
+      halo(sun.x,sun.y,rsp*3.6,[255,165,60],.40*breath,.09,.38);
+      halo(sun.x,sun.y,rsp*1.6,[255,226,160],.55,.16,.5);
+      sphere(sun,rs,(dx,dy,nz,rr)=>{
+        const grain=noise(dx*2.6+t*.35,dy*2.6+t*.2,711);
+        // Smaller glyphs round the limb keep the disc from squaring off.
+        if(rr>.8) return [G[grain>.5?'o':'*'],PI.fire,(.6+grain*.2)*(.7+.3*nz)];
+        return [G[grain>.6?'@':grain>.42?'%':grain>.25?'#':'&'],PI[rr<.3?'cream':rr<.75?'ember':'fire'],(.8+grain*.2)*(.7+.3*nz)];
+      });
+      for(let i=0;i<36;i++) {
+        const a=i/36*TAU+Math.sin(t*.7+i)*.03,flick=noise(i*.9,t*1.4,712),len=rsp*(.2+.8*Math.pow(flick,1.4));
+        for(let s=rsp+2.5;s<rsp+len;s+=ORB.ch*.7) {
+          const k=(s-rsp)/len;
+          put(sun.x+Math.cos(a)*s,sun.y+Math.sin(a)*s,0,G[k<.2?'*':k<.5?'+':k<.75?"'":'.'],PI[k<.35?'fire':'ember'],(1-k*.8)*(.6+.4*flick));
+        }
+      }
+      for(let i=0;i<7;i++) {
+        const a=i/7*TAU+Math.sin(t*.13+i*1.7)*.35,wave=noise(i*1.3,t*.5,714),len=rsp*(1.1+1.3*wave);
+        for(let s=rsp*1.15;s<rsp*1.15+len;s+=ORB.ch*.75) {
+          const k=(s-rsp*1.15)/len;
+          put(sun.x+Math.cos(a)*s,sun.y+Math.sin(a)*s,0,G[k<.3?"'":'.'],PI[k<.5?'ember':'fire'],(1-k)*(1-k)*.7);
+        }
+      }
+      }
+      if(stages&2) {
+      // Planets are globes lit by the sun as a point light, with a lit
+      // side, a dark side and a terminator; the sunward limb catches the
+      // light, and a thin atmosphere (`air`) rims those that have one.
+      // Each wears its own face from SKINS, turning with it, and Saturn
+      // its ring, shadowed where the globe blocks the sun.
+      for(const p of ORRERY.planets) {
+        const pos=orbit(p,p.start+TAU*t/p.period),s=proj(pos[0],pos[1],pos[2]),len=Math.hypot(pos[0],pos[1],pos[2]);
+        const L=[-pos[0]/len,-pos[1]/len,-pos[2]/len],Ls=toScreen(L),skin=SKINS[p.name];
+        halo(s.x,s.y,p.r*R+9,rgbOf(p.palette),.30,.04,.45);
+        sphere(s,p.r,(dx,dy,nz,rr)=>{
+          const lam=dx*Ls[0]+dy*Ls[1]+nz*Ls[2],lit=Math.max(0,lam);
+          const w=toWorld(dx,dy,nz),[pal,tone,night]=skin(w[1],Math.atan2(w[0],w[2])+t*p.spin,t);
+          if(lam<=0) return night?[G['.'],PI[night],.5]:[G[lam>-.3?':':'.'],PI[pal],.14];
+          if(p.air&&rr>.8&&lit>.08) return [G[lit>.4?':':"'"],PI[p.air],.3+lit*.6];
+          const rim=rr>.55&&lam>.25?.18:0,b=(.17+.83*Math.pow(lit,.75))*tone+rim;
+          return [G[b>.72?'@':b>.48?'%':b>.28?'o':b>.12?':':'.'],PI[pal],b];
+        });
+        if(p.ring) {
+          const rg=p.ring,ri=rg.inner*p.r,ro=rg.outer*p.r,ct=Math.cos(rg.tilt),st=Math.sin(rg.tilt),cu=Math.cos(rg.turn),su=Math.sin(rg.turn);
+          const u=[cu,0,-su],v=[su*ct,st,cu*ct],nrm=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+          const face=Math.abs(nrm[0]*L[0]+nrm[1]*L[1]+nrm[2]*L[2]);
+          const steps=Math.ceil(TAU*ro*R/2),radial=Math.max(2,Math.ceil((ro-ri)*R/2));
+          for(let i=0;i<steps;i++) {
+            const a=i/steps*TAU,ca=Math.cos(a),sa=Math.sin(a);
+            // The ring's dashes turn to lie along its edge on screen, so
+            // it reads as a smooth ellipse rather than hatching.
+            const tn=toScreen([-sa*u[0]+ca*v[0],-sa*u[1]+ca*v[1],-sa*u[2]+ca*v[2]]),turn=Math.atan2(tn[1],tn[0]);
+            for(let j=0;j<=radial;j++) {
+              const f=j/radial,q=mix(ri,ro,f),rel=[q*(ca*u[0]+sa*v[0]),q*(ca*u[1]+sa*v[1]),q*(ca*u[2]+sa*v[2])];
+              const along=rel[0]*L[0]+rel[1]*L[1]+rel[2]*L[2];
+              const shadow=along<0&&Math.hypot(rel[0]-along*L[0],rel[1]-along*L[1],rel[2]-along*L[2])<p.r;
+              const w=proj(pos[0]+rel[0],pos[1]+rel[1],pos[2]+rel[2]);
+              // Saturn's: a faint inner ring, the bright main ring, an empty
+              // gap, then a dimmer outer ring. A plain ring is one thin band.
+              let g,dense;
+              if(rg.plain) {g='-';dense=rg.dim;}
+              else {if(f>=.58&&f<.68) continue;const inner=f<.12;dense=inner?.35:f<.58?1:.6;g=inner?'.':f<.58?'=':'-';}
+              put(w.x,w.y,w.d,G[g],PI[rg.palette||'cream'],(.42+.55*face)*dense*(shadow?.3:1),g==='.'?0:turn);
+            }
+          }
+        }
+        // Moons are small lit globes that pass behind and in front of
+        // their planet; the depth grid sorts them.
+        if(p.moons) for(const m of p.moons) {
+          const ma=(m.start||0)+t*TAU/m.period,ms=proj(pos[0]+m.a*Math.cos(ma),pos[1],pos[2]+m.a*Math.sin(ma)),pal=PI[m.palette||'stone'];
+          sphere(ms,m.r,(dx,dy,nz)=>{const lam=dx*Ls[0]+dy*Ls[1]+nz*Ls[2];return [G[lam>.4?'o':'.'],pal,.12+.75*Math.max(0,lam)];});
+        }
+      }
+      // A comet on a long, leaning ellipse falls in past the sun now and
+      // then. Near it two tails stream away from the sun: a straight blue
+      // ion tail, and a dust tail that lags along the orbit.
+      const cm=ORRERY.comet;
+      if(cm) {
+        const cn=Math.cos(cm.node),sn=Math.sin(cm.node),ci=Math.cos(cm.tilt),si=Math.sin(cm.tilt);
+        const at=time=>{
+          const M=TAU*(time-cm.peri)/cm.period;
+          let E=M;
+          for(let i=0;i<6;i++) E-=(E-cm.e*Math.sin(E)-M)/(1-cm.e*Math.cos(E));
+          const px=cm.a*(Math.cos(E)-cm.e),pz=cm.a*Math.sqrt(1-cm.e*cm.e)*Math.sin(E);
+          return [px*cn-pz*sn*ci,pz*si,px*sn+pz*cn*ci];
+        };
+        const pos=at(t),next=at(t+.05),dist=Math.hypot(pos[0],pos[1],pos[2]),away=pos.map(v=>v/dist);
+        const vel=next.map((v,i)=>v-pos[i]),speed=Math.hypot(vel[0],vel[1],vel[2])||1,back=vel.map(v=>-v/speed);
+        const glow=clamp(.06/(dist*dist)),head=proj(pos[0],pos[1],pos[2]),reach=clamp(glow*1.2,0,.6);
+        halo(head.x,head.y,6+glow*20,[200,225,255],.15+glow*.4,0,.5);
+        put(head.x,head.y,head.d+.01,G[glow>.15?'*':'+'],PI.moon,.6+glow*.4);
+        for(const [dir,length,pal] of [[away,reach,'blue'],[away.map((v,i)=>v*.8+back[i]*.5),reach*.6,'cream']]) {
+          const n=Math.hypot(dir[0],dir[1],dir[2]),step=ORB.ch*.5/R;
+          for(let s=step;s<length;s+=step) {
+            const k=s/length,w=proj(pos[0]+dir[0]/n*s,pos[1]+dir[1]/n*s,pos[2]+dir[2]/n*s);
+            put(w.x,w.y,w.d,G[k<.4?':':k<.7?"'":'.'],PI[pal],Math.pow(1-k,.8)*(.55+.45*glow));
+          }
+        }
+      }
+      }
+      if(stages&4) for(let k=0;k<o.n;k++) {
+        const g=o.glyph[k];
+        if(!g) continue;
+        const i=k%o.cols,j=(k-i)/o.cols;
+        this.orbGlyph(g,o.pal[k],o.bright[k],o.x0+(i+.5)*ORB.cw,o.y0+(j+.5)*ORB.ch,o.turn[k]);
       }
     }
     rasterPoly(poly) {
@@ -1257,14 +1864,13 @@
         // cells cannot erase each other. Vegetation returns next frame.
         // A '_' in the mask clears only the cell's lower half, so whatever
         // stands behind a top edge still shows above it.
-        this.ctx.fillStyle=BG;
+        const d=this.dpr;
         for(let j=0;j<lines.length;j++)for(let i=0;i<lines[j].length;i++) {
           const mask=options.mask?.[j]||lines[j];
           if(!mask[i]||mask[i]===' ')continue;
           const cell=place(i,j),low=mask[i]==='_'?cell.ch/2:0;
           if(!this.visible(cell,true))continue;
-          this.ctx.globalAlpha=1;
-          this.ctx.fillRect(Math.round((cell.x-cell.cw/2-1)*this.dpr)/this.dpr,Math.round((cell.y-cell.ch/2-1+low)*this.dpr)/this.dpr,cell.cw+2,cell.ch+2-low);
+          this.rect(Math.round((cell.x-cell.cw/2-1)*d)/d,Math.round((cell.y-cell.ch/2-1+low)*d)/d,cell.cw+2,cell.ch+2-low);
         }
       }
       for (let j = 0; j < lines.length; j++) for (let i = 0; i < lines[j].length; i++) {
@@ -1321,6 +1927,14 @@
       for(const fl of flames) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.glyph(fl.g,'dark',.3,fl.x+ox,fl.y+oy);
       for(const fl of flames) this.glyph(fl.g,fl.palette,.9,fl.x,fl.y);
     }
+    drawSnort(a,age) {
+      // Two puffs from the pony's muzzle, drifting off ahead of it.
+      const p=this.project(a.x,a.y,a.z);
+      for(let i=0;i<2;i++) {
+        const k=clamp((age-.25-i*.2)/.8);
+        if(k>0&&k<1) this.glyph(GI['~'],'stone',.7,p.x+21+k*12,p.y-29-k*5,false,Math.sin(k*Math.PI)*.8);
+      }
+    }
     drawMishap(s,marks) {
       // The marshmallow catching fire: puffs blow it out, and smoke curls
       // off what's left.
@@ -1345,8 +1959,11 @@
       if(this.trip) this.stepTrip(dt);
       const trip=this.trip,away=trip&&trip.state!=='home';
       for(const fig of this.folk) if(!fig.hidden) Folk.step(fig,dt,errand&&fig===reader.fig?reader.world:away&&fig===trip.fig?trip.world:this.world);
+      this.stepAnimals(dt);
       this.trampleGrass(dt);
       if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
+      if (!this.shower && t >= this.nextShower) this.startShower();
+      if (this.shower) this.stepShower(dt);
       for (const meteor of this.meteors) meteor.age += dt;
       this.meteors = this.meteors.filter(m=>m.age<m.life);
       if (this.satellite) { this.satellite.age += dt; if (this.satellite.age >= this.satellite.life) { this.satellite = null; this.nextSatellite = t+40+Math.random()*40; } }
@@ -1376,10 +1993,42 @@
       this.sparks = this.sparks.filter(s=>s.age<s.life);
       if (hash(Math.floor(t*60),97) < dt*8 && this.sparks.length<25) this.sparks.push({ age:0,life:1.5+hash(Math.floor(t*60),98)*1.7,dx:(hash(Math.floor(t*60),99)-.5)*1.6 });
     }
-    // Where the pony and rabbit have grazed to by time t.
+    // Where the pony and rabbit have grazed to by time t, and how high the
+    // rabbit is off the ground if it is hopping away.
     wander(t=this.time) {
-      const {pony,rabbit}=this.wildlife;
-      return {ponyX:pony.x+Math.sin(t*.075)*2,rabbitX:rabbit.x+Math.sin(t*.09)*.6};
+      const {pony,rabbit}=this.wildlife,hop=this.rabbitHop;
+      let along=0,rabbitBob=0;
+      if(hop) {
+        const n=Math.min(3,hop.age/1.2*3),i=Math.min(2,Math.floor(n)),f=n-i;
+        along=(i+smooth(0,1,f))/3*hop.dir*2.2;rabbitBob=-Math.sin(f*Math.PI)*5;
+      }
+      return {ponyX:pony.x+Math.sin(t*.075)*2,rabbitX:rabbit.x+Math.sin(t*.09)*.6+along,rabbitBob};
+    }
+    // The animals' reactions to a tap, each running its course. The dog
+    // spins on the spot, then wags. The pony stamps and snorts; the rabbit
+    // hops a little way off, three hops, and grazes on from there.
+    stepAnimals(dt) {
+      if(this.ponyFuss&&(this.ponyFuss.age+=dt)>1.5) this.ponyFuss=null;
+      const hop=this.rabbitHop;
+      if(hop&&(hop.age+=dt)>=1.2) { this.wildlife.rabbit.x+=hop.dir*2.2; this.rabbitHop=null; }
+      const now=this.dogNow,spin=this.dogSpin;
+      now.hop=0;now.stride=false;now.wag=false;now.right=false;
+      if(!spin) return;
+      spin.age+=dt;
+      if(spin.age<DOG_SPIN.spin) {
+        // It turns at the top of each bound, legs out while airborne, and an
+        // even number of turns lands it facing the way it started.
+        const n=spin.age/DOG_SPIN.spin*DOG_SPIN.hops,f=n%1;
+        now.hop=-Math.sin(f*Math.PI)*DOG_SPIN.lift;now.stride=f>.15&&f<.85;now.right=Math.floor(n+.5)%2===1;
+      } else if(spin.age<DOG_SPIN.spin+DOG_SPIN.wag) now.wag=true;
+      else this.dogSpin=null;
+    }
+    dogSprite() {
+      const n=this.dogNow,lines=[...(n.right?SPRITES.dogRight:SPRITES.dog)];
+      // Legs reach out fore and aft mid-bound; a wagging tail flicks up.
+      if(n.stride) lines[3]=n.right?'  / \\ ':' / \\  ';
+      if(n.wag&&Math.sin(this.time*40)>0) lines[2]=n.right?'\\/##\\ ':' /##\\/';
+      return lines;
     }
     trampleGrass(dt) {
       // Each bent cell is a damped spring: it eases back upright behind
@@ -1534,9 +2183,8 @@
         if(this.visible(p)) parts.push({p,g:sheet.index[chars[2-i]],palette:i===2?'blue':'moon'});
       }
       // Clear the water glyphs behind the body first, so it reads cleanly.
-      const c=this.ctx,m=sheet.cw*.9;
-      c.globalAlpha=1;c.fillStyle=BG;
-      for(const {p} of parts) c.fillRect(p.x-m/2,p.y-m/2,m,m);
+      const m=sheet.cw*.9;
+      for(const {p} of parts) this.rect(p.x-m/2,p.y-m/2,m,m);
       for(const {p,g,palette} of parts) this.sheetGlyph(g,palette,.74+glint*.26,p.x,p.y,false,1,sheet,face*tilt);
     }
     drawHooked(m) {
@@ -1550,27 +2198,105 @@
         const p={x,y,d:hook.d};
         if(this.visible(p,true)) parts.push({p,g:sheet.index['><>'[2-i]],palette:i===2?'blue':'moon',turn:-Math.PI/2-a});
       }
-      const c=this.ctx,size=sheet.cw*.9;
-      c.globalAlpha=1;c.fillStyle=BG;
-      for(const {p} of parts) c.fillRect(p.x-size/2,p.y-size/2,size,size);
+      const size=sheet.cw*.9;
+      for(const {p} of parts) this.rect(p.x-size/2,p.y-size/2,size,size);
       for(const {p,g,palette,turn} of parts) this.sheetGlyph(g,palette,.9,p.x,p.y,false,1,sheet,turn);
     }
-    spawnMeteor() {
-      // Start somewhere in the visible upper sky and streak down and across,
-      // away from the nearer side. One in six is a slow, bright fireball.
+    isSky(x,y) {
+      return x>=0&&y>=0&&x<this.W&&y<this.H&&this.material[Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw)]===MAT.sky;
+    }
+    spawnMeteor(at=null) {
+      // Start somewhere in the visible upper sky, or where the sky was
+      // tapped, and streak down and across, away from the nearer side. One
+      // in six is a slow, bright fireball.
       const top=Math.min(this.H,innerHeight)*.5;
       for(let tries=0;tries<16;tries++) {
-        const x=this.W*(.08+Math.random()*.84),y=8+top*Math.random();
-        if(this.material[Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw)]!==MAT.sky) continue;
-        const fireball=Math.random()<.16,side=x<this.W/2?1:-1,angle=.25+Math.random()*.45;
-        this.meteors.push({x,y,dx:Math.cos(angle)*side,dy:Math.sin(angle),speed:fireball?240:420+Math.random()*260,age:0,
-          life:fireball?1.9:.55+Math.random()*.5,length:fireball?30:9+Math.floor(Math.random()*12),fireball});
+        const x=at?at.x:this.W*(.08+Math.random()*.84),y=at?at.y:8+top*Math.random();
+        if(!this.isSky(x,y)) { if(at) return; continue; }
+        const fireball=Math.random()<.16,speed=fireball?240:420+Math.random()*260,life=fireball?1.9:.55+Math.random()*.5;
+        let side=x<this.W/2?1:-1,angle=.25+Math.random()*.45;
+        // A tap may land just above the treeline, so a tapped meteor takes
+        // whichever heading keeps it in open sky longest.
+        if(at) [side,angle]=this.openHeading(x,y,side,angle,speed*life);
+        this.meteors.push({x,y,dx:Math.cos(angle)*side,dy:Math.sin(angle),speed,age:0,life,length:fireball?30:9+Math.floor(Math.random()*12),fireball});
         // The stargazer looks up from the eyepiece to point it out, ahead or
         // back over a shoulder.
         const fig=this.stargazer,seen=this.project(fig.x,fig.y,fig.z);
         Folk.cue(fig,x>seen.x?'point':'pointBack',fireball?3.2:2.2,.35);
         return;
       }
+    }
+    startShower() {
+      if(this.shower) return;
+      // A shower's meteors all fly out from one point in the sky, its
+      // radiant: high in the visible sky, and well clear of the moon, or
+      // the moon seems to be throwing them. With no such sky, it sits just
+      // above the screen and they all fall.
+      let radiant={x:this.W*.4,y:-20};
+      for(let tries=0;tries<40;tries++) {
+        const x=this.W*(.2+Math.random()*.6),y=10+Math.random()*30;
+        if(this.isSky(x,y)&&Math.hypot(x-this.moon.x,y-this.moon.y)>this.moon.r+50) { radiant={x,y}; break; }
+      }
+      // The stargazer straightens up to point it out. Anyone not busy stops
+      // to look up, one after another as they notice.
+      const fig=this.stargazer,seen=this.project(fig.x,fig.y,fig.z);
+      Folk.cue(fig,radiant.x>seen.x?'point':'pointBack',SHOWER.watch-1.2,1.2);
+      const onlookers=this.folk.filter(f=>f!==fig&&!f.rod&&!f.toast);
+      this.shower={age:0,radiant,notice:onlookers.map(f=>({fig:f,at:1.5+Math.random()*3.5}))};
+    }
+    stepShower(dt) {
+      const s=this.shower;
+      s.age+=dt;
+      if(s.age>=SHOWER.life) {
+        this.shower=null;
+        this.nextShower=this.time+SHOWER.gap[0]+Math.random()*(SHOWER.gap[1]-SHOWER.gap[0]);
+        return;
+      }
+      for(const n of s.notice) {
+        if(n.done||s.age<n.at) continue;
+        n.done=true;
+        // Not someone already on their way to the castle, or inside it.
+        if(n.fig.route||n.fig.hidden) continue;
+        Folk.halt(n.fig,SHOWER.watch-s.age+1.5);
+        Folk.cue(n.fig,'lookUp',SHOWER.watch-s.age);
+      }
+      const k=s.age/SHOWER.life,rate=SHOWER.peak*smooth(0,.25,k)*(1-smooth(.7,1,k));
+      if(Math.random()<rate*dt) this.spawnShowerMeteor(s.radiant);
+    }
+    spawnShowerMeteor(r) {
+      // Anywhere in the visible sky, flying straight out from the radiant.
+      // Near it they are short and slow, coming nearly head-on; far out,
+      // long. A few are fireballs.
+      const top=Math.min(this.H,innerHeight)*.5;
+      for(let tries=0;tries<12;tries++) {
+        const x=Math.random()*this.W,y=Math.random()*top,dx=x-r.x,dy=y-r.y,d=Math.hypot(dx,dy);
+        if(d<12||!this.isSky(x,y)) continue;
+        const far=clamp(d/160,.3,1),fireball=Math.random()<.06;
+        this.meteors.push({x,y,dx:dx/d,dy:dy/d,speed:(fireball?240:380+Math.random()*260)*far,age:0,life:fireball?1.6:.45+Math.random()*.4,
+          length:2+Math.round((fireball?24:6+Math.random()*10)*far),fireball});
+        return;
+      }
+    }
+    openHeading(x,y,side,angle,reach) {
+      // Falling steeply reads best, so keep the given heading if it makes a
+      // fair streak; failing that, try flatter ones on the same side, then
+      // the other. If none does, take whichever lasts longest.
+      const enough=Math.min(reach*.5,140);
+      let best=[side,angle],most=this.skyRun(x,y,side,angle,reach);
+      if(most>=enough) return best;
+      for(const s of [side,-side]) for(const base of [.5,.3,.12]) {
+        const a=base*(.85+Math.random()*.3),run=this.skyRun(x,y,s,a,reach);
+        if(run>=enough) return [s,a];
+        if(run>most) { most=run; best=[s,a]; }
+      }
+      return best;
+    }
+    // How far a meteor's head travels in view, before it drops behind the
+    // land or off the side of the screen.
+    skyRun(x,y,side,angle,reach) {
+      const dx=Math.cos(angle)*side,dy=Math.sin(angle);
+      for(let d=0;d<reach;d+=this.cw) if(!this.isSky(x+dx*d,y+dy*d)) return d;
+      return reach;
     }
     skyGlyph(g,p,b,x,y,alpha=1) {
       const k=Math.floor(y/this.ch)*this.cols+Math.floor(x/this.cw),sheet=this.meteorAtlas;
@@ -1600,7 +2326,10 @@
       for(const m of this.meteors) {
         const life=m.age/m.life,travel=m.speed*m.age,fade=smooth(0,.1,life)*(1-smooth(.62,1,life));
         const x=m.x+m.dx*travel,y=m.y+m.dy*travel,spacing=4.5;
-        const streak=m.dy>.6?(m.dx>0?'\\':'/'):'-';
+        // The stroke nearest the meteor's slant. A shower's meteors fly
+        // every way, up included.
+        const slant=Math.atan2(Math.abs(m.dy),Math.abs(m.dx));
+        const streak=slant<Math.PI/8?'-':slant>Math.PI*3/8?'|':m.dx*m.dy>0?'\\':'/';
         for(let i=0;i<m.length&&i*spacing<=travel;i++) {
           const sx=x-m.dx*i*spacing,sy=y-m.dy*i*spacing,tail=1-i/m.length;
           const g=i===0?(m.fireball?'@':'*'):i<3?(m.fireball?'*':'+'):i<m.length*.6?streak:'.';
@@ -1619,15 +2348,18 @@
         this.skyGlyph(flare>.5?'*':flare>.2?'+':'.','star',.62+flare*.5,mix(sat.x0,sat.x1,p),mix(sat.y0,sat.y1,p),fade);
       }
     }
-    drawWorld(staticPass=false) {
+    // `from` and `to` are fractions of the cell list, so a crane can draw
+    // the moving cells in parts.
+    drawWorld(staticPass=false,from=0,to=1) {
       const t=this.time,cw=this.cw,ch=this.ch;
       const lighting=this.moonlight;
       const trample=staticPass?null:this.trample;
       const lightFlickers=this.lights.map(l=>.83+Math.sin(t*8+l.phase)*.10+Math.sin(t*13+l.phase)*.06);
-      for(let j=0;j<this.rows;j++) for(let i=0;i<this.cols;i++) {
-        const k=j*this.cols+i,m=this.material[k];
-        if(m===MAT.sky || (staticPass ? this.dynamic[k] : !this.dynamic[k])) continue;
+      const cells=staticPass?this.stillCells:this.liveCells,cols=this.cols,cull=this.cull;
+      for(let c=Math.floor(cells.length*from),end=Math.floor(cells.length*to);c<end;c++) {
+        const k=cells[c],m=this.material[k],i=k%cols,j=(k-i)/cols;
         const x=(i+.5)*cw,y=(j+.5)*ch;
+        if(cull&&(y<cull.top-ch||y>cull.bottom+ch)) continue;
         let g=this.glyphs[k],p=PAL[MATERIAL_NAMES[m]],b=this.shade[k]*lighting*this.shadow[k];
         const warm=this.light[k]*lightFlickers[this.lightIndex[k]];
         if(m===MAT.grass) {
@@ -1650,7 +2382,7 @@
         b*=1-smooth(18,80,-this.wz[k])*.32;
         this.glyph(g,p,b,x,y,m===MAT.water?false:warm>.15||lit);
       }
-      if(!staticPass) this.drawTrampled();
+      if(!staticPass&&to>=1) this.drawTrampled();
     }
     // A blade leans away from whatever brushed it; a tuft only shows a firm push.
     grassGlyph(k,bend) {
@@ -1663,14 +2395,13 @@
       // is cleared back to the background and redrawn bent.
       const active=this.trampleActive;
       if(!active) return;
-      const c=this.ctx,cw=this.cw,ch=this.ch,d=this.dpr,lighting=this.moonlight;
+      const cw=this.cw,ch=this.ch,d=this.dpr,lighting=this.moonlight;
       for(const k of active) {
         if(this.dynamic[k]) continue;
         const bend=this.trample[k],g=this.grassGlyph(k,bend);
         if(g===this.glyphs[k]) continue;
         const i=k%this.cols,j=(k-i)/this.cols,left=Math.round(i*cw*d)/d,top=Math.round(j*ch*d)/d;
-        c.globalAlpha=1;c.fillStyle=BG;
-        c.fillRect(left,top,Math.round((i+1)*cw*d)/d-left,Math.round((j+1)*ch*d)/d-top);
+        this.rect(left,top,Math.round((i+1)*cw*d)/d-left,Math.round((j+1)*ch*d)/d-top);
         const b=(this.shade[k]*lighting*this.shadow[k]+Math.abs(bend)*.20)*(1-smooth(18,80,-this.wz[k])*.32);
         this.glyph(g,PAL.grass,b,(i+.5)*cw,(j+.5)*ch);
       }
@@ -1724,6 +2455,11 @@
     }
     drawStatic() {
       const key=String(Math.round(this.moonlight*18));
+      if(this.gl&&!this.ctx) {
+        this.recordStatic();
+        this.gl.play(this.staticClip,0,Math.round(this.shiftY*this.dpr));
+        return;
+      }
       if(this.staticKey!==key) {
         const main=this.ctx;
         this.ctx=this.staticContext;
@@ -1815,11 +2551,16 @@
       }
       // Animals and people share one far-to-near pass, so whoever stands
       // nearer covers the other; an animal's matte never erases a person.
-      const {dog,pony,rabbit}=this.wildlife,{ponyX,rabbitX}=this.wander(t);
+      const {dog,pony,rabbit}=this.wildlife,{ponyX,rabbitX,rabbitBob}=this.wander(t),fuss=this.ponyFuss;
       const actors=[
-        {x:dog.x,y:dog.y,z:dog.z,draw:()=>this.sprite(SPRITES.dog,dog.x,dog.y,dog.z,'deer',.76,0,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true})},
-        {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>this.sprite(Math.sin(t*.65)>.70?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true})},
-        {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,0,{actor:true,eyePalette:'deer',opaque:true})},
+        {x:dog.x,y:dog.y,z:dog.z,draw:a=>this.sprite(this.dogSprite(),a.x,a.y,a.z,'deer',.76,this.dogNow.hop,{actor:true,eyePalette:'cream',fireSide:-1,opaque:true})},
+        {x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,draw:a=>{
+          // A fussing pony stamps in place.
+          const step=fuss?Math.sin(fuss.age*22)>0:Math.sin(t*.65)>.70;
+          this.sprite(step?SPRITES.ponyStep:SPRITES.pony,a.x,a.y,a.z,'deer',.78,0,{actor:true,opaque:true,mask:SPRITES.ponyMask,ponyHead:true});
+          if(fuss) this.drawSnort(a,fuss.age);
+        }},
+        {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,rabbitBob,{actor:true,eyePalette:'deer',opaque:true})},
         ...this.folk.filter(fig=>!fig.hidden).map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
         ...this.fish.map(f=>{const [x,y,z]=this.leapPoint(f,Math.min(1,f.age/f.life));return {x,y,z,draw:()=>this.drawFish(f)};}),
       ];
@@ -1842,20 +2583,163 @@
     }
     render(dt=0) {
       const started=performance.now();
-      if(!this.paused&&!this.reduced) this.update(dt);
+      let intro=this.intro;
+      if(intro) {this.stepIntro(dt);intro=this.intro;}
+      // The scene's clock starts with the descent, so it is alive as it
+      // comes into view but nothing in it happens unseen during the hold.
+      if(!this.paused&&!this.reduced&&!(intro&&intro.phase==='hold')) this.update(dt);
       else if(!this.flicker) { this.flicker=.88;this.wind=.32; }
-      const c=this.ctx;
-      c.globalAlpha=1;c.fillStyle=BG;c.fillRect(0,0,this.W,this.H);
-      if(this.sky!=='plain'&&this.skyRows) c.drawImage(this.hazeCanvas,0,0,this.hazeCanvas.width/this.dpr,this.hazeCanvas.height/this.dpr);
-      this.drawSky();this.drawStatic();this.drawWorld();this.drawMeadow();
-      if(this.linkStyle==='sign') this.drawSign(); else this.drawFlyWords();
-      c.globalAlpha=1;
+      if(this.gl&&!this.ctx) {if(!this.gl.begin(this.canvas.width,this.canvas.height,BG_RGB)) return;}
+      else this.rect(0,0,this.W,this.H);
+      if(intro) {
+        // The crane: the sky above scrolls past, and the finished scene is
+        // drawn shifted down beneath it. Off screen during the hold, the
+        // scene is not drawn at all.
+        const gl=this.gl&&!this.ctx?this.gl:null,d=this.dpr,W=this.canvas.width,H=this.canvas.height,T=Math.round(this.space.travel*d);
+        const layers=gl&&gl.layer(this.skyBack,W,T)&&gl.layer(this.skyFront,W,T)&&gl.layer(this.groundBack,W,H)&&gl.layer(this.groundFront,W,H);
+        if(layers&&intro.phase==='hold') {
+          // The hold draws the sky into its layer and shows that, so the
+          // crane starts with the layer current and no job on its first
+          // frame. The prompt and chevron go on the screen over it.
+          this.crane=null;
+          gl.target(gl.layer(this.skyFront,W,T),BG_RGB);this.drawSpace(false,15);gl.target(null);
+          gl.draw(gl.layer(this.skyFront,W,T),0,0);
+          this.drawHoldCue();
+        } else if(layers) {
+          // While the crane moves, the two are layers: drawn into textures
+          // at the scene's own rate and slid at the display's, so the
+          // camera stays smooth with both in view. Drawing both every
+          // display frame lagged on the phone until the orrery had scrolled
+          // off (Oct 27 2026), and redrawing both on one frame still
+          // overran it (24 ms against a 60 Hz phone's 16.7, ten frames
+          // dropped a crane). So a frame does at most one job, into a
+          // layer's back buffer, shown once its last job is in. How finely
+          // the work is cut is tuned on the device (`craneLevel`, 0 to 3):
+          // each job is timed, and after every two passes the cut goes one
+          // step finer if a job came near a display frame, or coarser once
+          // all are far below it, so a phone on a low battery (20 ms jobs
+          // at 9%, where a fixed cut gave 12 at 16%) settles where its
+          // frames hold. A layer that is off screen is left alone, and
+          // each is drawn only in the band the screen can show before its
+          // next redraw.
+          const now=performance.now(),M=128,period=1000/30-2;
+          const c=this.crane||(this.crane={sky:{at:now-period,step:0,band:null,jobs:null},ground:{at:now-period,step:0,band:null,jobs:null},worst:0,passes:0});
+          // The levels, coarse to fine: the sky's jobs are part masks for
+          // drawSpace, the scene's are cell ranges, null its life.
+          const SKY=[[15],[1,14],[1,6,8],[1,2,4,8]],GROUND=[[[0,1],null],[[0,.5],[.5,1],null],[[0,1/3],[1/3,2/3],[2/3,1],null],[[0,.25],[.25,.5],[.5,.75],[.75,1],null]];
+          const skyVisible=intro.scroll<this.space.travel,groundVisible=intro.shift<this.H+M;
+          let pass=c.sky.step?'sky':c.ground.step?'ground':null;
+          if(!pass) {
+            if(!skyVisible) c.sky.at=now;
+            if(!groundVisible) c.ground.at=now;
+            const skyDue=now-c.sky.at,groundDue=now-c.ground.at;
+            if(skyVisible&&skyDue>=period&&(skyDue>=groundDue||!groundVisible)) pass='sky';
+            else if(groundVisible&&groundDue>=period) pass='ground';
+          }
+          if(pass) {
+            const p=c[pass],level=this.craneLevel;
+            if(!p.step) {p.at=now;p.jobs=(pass==='sky'?SKY:GROUND)[level];p.band=pass==='sky'?{top:intro.scroll-M,bottom:intro.scroll+this.H+M}:{top:-M,bottom:this.H-intro.shift+M};}
+            const job=p.jobs[p.step],t0=performance.now();
+            this.cull=p.band;
+            if(pass==='sky') {gl.target(gl.layer(this.skyBack,W,T),p.step?null:BG_RGB);this.drawSpace(true,job);}
+            else {gl.target(gl.layer(this.groundBack,W,H),p.step?null:BG_RGB);if(job) this.drawSceneBase(job[0],job[1]); else this.drawSceneLife();}
+            this.cull=null;gl.target(null);
+            c.worst=Math.max(c.worst,performance.now()-t0);
+            if(++p.step===p.jobs.length) {
+              p.step=0;
+              if(pass==='sky') [this.skyFront,this.skyBack]=[this.skyBack,this.skyFront]; else [this.groundFront,this.groundBack]=[this.groundBack,this.groundFront];
+              if(++c.passes%2===0) {
+                const budget=this.frameInterval*.6;
+                if(c.worst>budget&&level<3) this.setCraneLevel(level+1);
+                else if(c.worst<budget*.45&&level>0) this.setCraneLevel(level-1);
+                c.worst=0;
+              }
+            }
+          }
+          gl.draw(gl.layer(this.skyFront,W,T),0,-Math.round(intro.scroll*d));
+          if(intro.shift<this.H) gl.draw(gl.layer(this.groundFront,W,H),0,Math.round(intro.shift*d));
+        } else {
+          this.crane=null;
+          this.shift(-intro.scroll);this.drawSpace(false,15);if(intro.phase==='hold') this.drawHoldCue();this.unshift();
+          if(intro.shift<this.H) {this.shift(intro.shift);this.drawScene();this.unshift();}
+        }
+        if(intro.auto&&intro.clock<INTRO.fade) this.rect(0,0,this.W,this.H,1-smooth(0,INTRO.fade,intro.clock));
+      } else {
+        // The scene at rest also draws through its layer, so a crane up
+        // starts with it current.
+        const gl=this.gl&&!this.ctx?this.gl:null,ground=gl&&gl.layer(this.groundFront,this.canvas.width,this.canvas.height);
+        if(ground) {gl.target(ground,BG_RGB);this.drawScene();gl.target(null);gl.draw(ground,0,0);}
+        else this.drawScene();
+        if(!this.reduced) this.drawNav('up',1,this.time);
+      }
+      if(this.gl&&!this.ctx) this.gl.end(); else this.ctx.globalAlpha=1;
       this.canvas.dataset.renderMs=(performance.now()-started).toFixed(1);
+      this.canvas.dataset.drawCalls=this.gl?String(this.gl.calls):'';
       this.canvas.dataset.ripples=String(this.ripples.length);
       this.canvas.dataset.fish=String(this.fish.length);
       this.canvas.dataset.meteors=String(this.meteors.length);
     }
+    // The scene in two halves, so the crane can draw them on separate
+    // frames: the ground (sky, the still world, the moving cells) and the
+    // life on it (meadow, animals, folk, the signpost).
+    drawScene() {this.drawSceneBase();this.drawSceneLife();}
+    drawSceneBase(from=0,to=1) {
+      if(from===0) {
+        if(this.sky!=='plain'&&this.skyRows) this.image(this.hazeCanvas,0,0,this.hazeCanvas.width/this.dpr,this.hazeCanvas.height/this.dpr);
+        this.drawSky();this.drawStatic();
+      }
+      this.drawWorld(false,from,to);
+    }
+    drawSceneLife() {
+      this.drawMeadow();
+      if(this.linkStyle==='sign') this.drawSign(); else this.drawFlyWords();
+    }
+    // Whoever a tap at px, py lands on, if anyone: the nearest figure or
+    // animal under the finger. Each gets an oval around its body (w, h, its
+    // centre `up` from the feet), roomy enough for a fingertip.
+    actorAt(px,py) {
+      const {dog,pony,rabbit}=this.wildlife,{ponyX,rabbitX}=this.wander();
+      const near=[
+        ...this.folk.filter(fig=>!fig.hidden).map(fig=>({fig,x:fig.x,y:fig.y,z:fig.z,up:12,w:16,h:22})),
+        {kind:'dog',x:dog.x,y:dog.y,z:dog.z,up:11,w:20,h:18},
+        {kind:'pony',x:ponyX,y:height(ponyX,pony.z)+.12,z:pony.z,up:24,w:30,h:30},
+        {kind:'rabbit',x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,up:8,w:16,h:16},
+      ];
+      let best=null,closest=1;
+      for(const a of near) {
+        const p=this.project(a.x,a.y,a.z),d=Math.hypot((px-p.x)/a.w,(py-p.y+a.up)/a.h);
+        if(d<closest) { closest=d; best=a; }
+      }
+      return best;
+    }
+    react(a) {
+      // The heading that faces the viewer, and the screen's left-right axis
+      // on the ground, which a wave is drawn across.
+      const fig=a.fig,viewer=Math.atan2(Math.cos(CAMERA.yaw),Math.sin(CAMERA.yaw)),across=[Math.cos(CAMERA.yaw),-Math.sin(CAMERA.yaw)];
+      if(a.kind==='dog') this.dogSpin??={age:0};
+      else if(a.kind==='pony') this.ponyFuss??={age:0};
+      else if(a.kind==='rabbit') {
+        const r=this.wildlife.rabbit,off=r.x-r.home;
+        this.rabbitHop??={age:0,dir:Math.abs(off)>1?-Math.sign(off):Math.random()<.5?-1:1};
+      }
+      // The stargazer points out a shooting star.
+      else if(fig===this.stargazer) this.spawnMeteor();
+      // Busy hands stay busy: the roaster and the angler wave the other one
+      // without turning from their work. If the angler was waiting on a
+      // bite, one comes just as they look away.
+      else if(fig.toast) Folk.greet(fig,across,null,'b');
+      else if(fig.rod) { if(Folk.greet(fig,across,null,'b')&&fig.rod.state==='wait') fig.rod.timer=Math.min(fig.rod.timer,2.8); }
+      // Everyone else turns to the viewer and waves.
+      else Folk.greet(fig,across,viewer);
+    }
     tap(px,py) {
+      // During the opening a tap only hurries the camera down.
+      if(this.intro) {this.advanceIntro();return;}
+      // A tap on someone gets a reaction; on the sky, a shooting star from
+      // under the finger; on the land, a ring outward through the grass.
+      const actor=this.actorAt(px,py);
+      if(actor) { this.react(actor); return; }
+      if(this.isSky(px,py)) { if(this.meteors.length<8) this.spawnMeteor({x:px,y:py}); return; }
       const p=this.groundAt(px,py);
       this.ripples.push({x:p.x,z:p.z,age:0});
       if(this.ripples.length>5) this.ripples.shift();
@@ -1863,9 +2747,13 @@
     dispose() {
       cancelAnimationFrame(this.raf);
       this.abort.abort();
+      this.disposed=true;
+      if(this.gl) {this.gl.free(this.staticClip);this.gl.dispose();}
       this.canvas.remove();
       if(this.hazeCanvas) this.hazeCanvas.width=this.hazeCanvas.height=0;
       if(this.meteorAtlas) this.meteorAtlas.canvas.width=this.meteorAtlas.canvas.height=0;
+      this.endIntro();
+      this.freeSky();
       if(this.tools) this.tools.remove();
     }
   }
@@ -1881,8 +2769,11 @@
     document.head.appendChild(style);
     if(new URLSearchParams(location.search).get('studio')!=='1') return;
     const tools=document.createElement('aside');tools.className='river-tools';tools.setAttribute('aria-label','Landscape preview');
-    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button');
-    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';
+    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),shower=document.createElement('button'),replay=document.createElement('button');
+    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';shower.textContent='Meteor shower';replay.textContent='Replay intro';
+    shower.addEventListener('click',()=>scene.startShower());
+    replay.addEventListener('click',()=>{scene.startIntro();scene.render();});
+    if(scene.reduced) replay.disabled=true;
     sky.addEventListener('click',()=>{
       scene.sky=scene.sky==='new'?'plain':'new';
       sky.textContent='Sky: '+(scene.sky==='new'?'New':'Plain');
@@ -1898,7 +2789,7 @@
     pause.setAttribute('aria-pressed','false');
     if(scene.reduced) { pause.disabled=true;pause.textContent='Still'; }
     pause.addEventListener('click',()=>{ scene.paused=!scene.paused;pause.textContent=scene.paused?'Resume':'Pause';pause.setAttribute('aria-pressed',String(scene.paused)); });
-    tools.append(sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
+    tools.append(replay,shower,sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
   }
 
   window.__themes=window.__themes||{};
@@ -1924,20 +2815,80 @@
       if(CSS.supports('-webkit-touch-callout','none')) {
         const park=()=>window.scrollTo(0,80);park();
         document.addEventListener('touchmove',e=>{if(!e.target.closest('.river-tools'))e.preventDefault();},{passive:false,signal});
+        // Safari still reads two quick taps as a zoom despite touch-action,
+        // and the parked page jolts. Cancelling the second tap's touchend
+        // stops that; scene taps run on pointer events, so they still land.
+        let lastTouch=-1e9;
+        document.addEventListener('touchend',e=>{
+          if(e.timeStamp-lastTouch<400&&!e.target.closest('a,button'))e.preventDefault();
+          lastTouch=e.timeStamp;
+        },{passive:false,signal});
         window.addEventListener('load',park,{signal});
         window.addEventListener('scroll',()=>{if(Math.abs(scrollY-80)>1)park();},{passive:true,signal});
       }
       let down=null;
       if(!scene.reduced) {
-        window.addEventListener('pointermove',e=>{scene.cursor={x:e.pageX,y:e.pageY,active:true,ground:scene.groundAt(e.pageX,e.pageY)};},{passive:true,signal});
+        window.addEventListener('pointermove',e=>{
+          if(scene.intro) {
+            scene.cursor.active=false;
+            if(e.pointerType==='mouse') document.body.style.cursor='';
+            return;
+          }
+          scene.cursor={x:e.pageX,y:e.pageY,active:true,ground:scene.groundAt(e.pageX,e.pageY)};
+          // A mouse shows who, and what, can be clicked.
+          if(e.pointerType==='mouse') document.body.style.cursor=scene.navHit(e.pageX,e.pageY)||scene.actorAt(e.pageX,e.pageY)?'pointer':'';
+        },{passive:true,signal});
         window.addEventListener('pointerout',e=>{if(!e.relatedTarget)scene.cursor.active=false;},{signal});
-        window.addEventListener('pointerdown',e=>{if(!e.target.closest('a,button'))down={x:e.pageX,y:e.pageY,t:performance.now()};},{signal});
-        window.addEventListener('pointerup',e=>{if(down&&performance.now()-down.t<350&&Math.hypot(e.pageX-down.x,e.pageY-down.y)<10)scene.tap(e.pageX,e.pageY);down=null;},{signal});
+        window.addEventListener('pointerdown',e=>{
+          if(down||e.target.closest('a,button')) return;
+          down={x:e.pageX,y:e.pageY,t:performance.now(),id:e.pointerId};
+        },{signal});
+        // At the orrery a tap, a swipe up, a scroll down or a key brings
+        // the camera down; in the scene the top chevron, a scroll up or
+        // the up arrow key takes it back up.
+        window.addEventListener('pointerup',e=>{
+          if(!down||e.pointerId!==down.id) return;
+          const tap=performance.now()-down.t<350&&Math.hypot(e.pageX-down.x,e.pageY-down.y)<10;
+          if(scene.intro) {if(tap||down.y-e.pageY>40) scene.advanceIntro();}
+          else if(tap) {if(scene.navHit(e.pageX,e.pageY)) scene.ascend(); else scene.tap(e.pageX,e.pageY);}
+          down=null;
+        },{signal});
+        window.addEventListener('wheel',e=>{if(scene.intro&&e.deltaY>0)scene.advanceIntro();else if(!scene.intro&&e.deltaY<-20)scene.ascend();},{passive:true,signal});
         window.addEventListener('pointercancel',()=>{down=null;scene.cursor.active=false;},{signal});
+        window.addEventListener('keydown',e=>{
+          if(scene.intro&&(e.key==='Enter'||e.key===' '||e.key==='Escape'||e.key==='ArrowDown'))scene.advanceIntro();
+          else if(!scene.intro&&e.key==='ArrowUp')scene.ascend();
+        },{signal});
       }
       let last=performance.now(),lastFrame=0;
+      // ?stats=1 shows what the display does: its rate, and the last crane's
+      // frames, drops (a gap over 1.5 display intervals), worst gap and
+      // heaviest frame. For tuning on a phone, where nothing else can look.
+      const stats=new URLSearchParams(location.search).get('stats')==='1'?document.createElement('div'):null;
+      let stamp=last,gaps=[],crane=null,statsAt=0,craneText='';
+      if(stats) {
+        // Absolute, below the parked runway: iOS Safari clips fixed boxes.
+        stats.style.cssText=`position:absolute;z-index:4;top:calc(var(--runway,0px) + 12px);left:8px;font:11px/1.4 ${FONT};color:#b8c7c2;background:#0b1520c0;padding:6px 8px;border-radius:4px;white-space:pre;pointer-events:none`;
+        document.body.appendChild(stats);
+      }
+      const median=a=>{const s=[...a].sort((x,y)=>x-y);return s[s.length>>1]||0;};
+      // The scene runs at 30 frames a second; the crane is a camera move,
+      // so while it runs every frame the display offers is drawn.
       const loop=now=>{
-        if(!document.hidden&&!scene.paused&&now-lastFrame>32) {const dt=Math.min(.08,(now-last)/1000);last=now;lastFrame=now;scene.render(dt);}
+        const moving=scene.intro&&scene.intro.phase!=='hold';
+        if(!document.hidden&&!scene.paused&&(moving||now-lastFrame>32)) {const dt=Math.min(.08,(now-last)/1000);last=now;lastFrame=now;scene.render(dt);}
+        // The display's frame interval, from the last second of callbacks.
+        const gap=now-stamp;stamp=now;gaps.push(gap);if(gaps.length>240) gaps.shift();
+        if(gaps.length%60===0) scene.frameInterval=Math.min(50,Math.max(4,median(gaps.slice(-60))));
+        if(stats) {
+          if(moving) {if(!crane) crane={gaps:[],ms:[]};crane.gaps.push(gap);crane.ms.push(+scene.canvas.dataset.renderMs||0);}
+          else if(crane) {
+            const interval=median(gaps),dropped=crane.gaps.filter(g=>g>interval*1.5).length,jobs=crane.ms.filter(m=>m>1.5);
+            craneText=`last crane: ${crane.gaps.length} frames, ${dropped} dropped, worst gap ${Math.max(...crane.gaps).toFixed(0)} ms\nredraw jobs: ${jobs.length}, median ${median(jobs).toFixed(1)} ms, heaviest ${Math.max(...crane.ms).toFixed(1)} ms`;
+            crane=null;
+          }
+          if(now-statsAt>500) {statsAt=now;stats.textContent=`display ~${Math.round(1000/(median(gaps)||16.7))} Hz, ${scene.canvas.dataset.engine}, crane cut level ${scene.craneLevel}\n${craneText||'crane: not yet'}`;}
+        }
         scene.raf=requestAnimationFrame(loop);
       };
       document.addEventListener('visibilitychange',()=>{last=performance.now();},{signal});
