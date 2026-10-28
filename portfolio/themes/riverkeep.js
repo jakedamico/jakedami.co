@@ -1897,7 +1897,7 @@
         if(!this.visible(m,true))continue;
         // Whatever reaches out past the body toward the fire catches its light.
         const heat=clamp((reach-Math.hypot(m.wx-f.x,m.wz-f.z)+.1)/.7)*clamp(1.6-reach/5)*this.flicker;
-        if(m.t==='body')this.sheetGlyph(sheet.index[m.c],fig.palette,fig.brightness+heat*.16,m.x,m.y,heat>.36,1,sheet);
+        if(m.t==='body')this.sheetGlyph(sheet.index[m.c],fig.palette,fig.brightness+heat*.16,m.x,m.y,heat>.36,1,sheet,m.r);
         else if(m.t==='mallow') {
           // White, then golden, then brown. Alight, a flame up to three
           // glyphs tall stands off it; once out, it is a charred lump.

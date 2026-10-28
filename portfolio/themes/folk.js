@@ -1,9 +1,11 @@
 // Folk: stick figures for River Keep. Each figure is a small skeleton posed
-// in world units. Its bones are drawn as ASCII strokes (| / \ -), chosen by
-// each bone's projected direction and spaced by the font's measured ink, so
-// limbs meet at their joints in any pose. Bodies, walking and wandering live
-// here; the scene supplies ground and walkability, projects the marks and
-// draws them with its own glyph sheets.
+// in world units. Its bones are drawn as short dashes turned to lie exactly
+// along each bone and set end to end by the font's measured ink, so a limb
+// is one continuous line that meets its joints in any pose (strokes picked
+// from the four ASCII angles leaned off the bone and stopped short of the
+// joints, Oct 27 2026). Bodies, walking and wandering live here; the scene
+// supplies ground and walkability, projects the marks and draws them with
+// its own glyph sheets.
 (function () {
   'use strict';
   const TAU = Math.PI * 2;
@@ -46,10 +48,10 @@
   // head. Only the waving arm moves.
   const WAVE = { upper:.75, lower:1.45, rock:.35, rate:12 };
   const WALK = { stride:.42, knee:.70, arm:.45, cycle:2.6 };
-  const LIMBS = [['hip','neck'],['shoulder','elbowA','handA'],['shoulder','elbowB','handB'],['hip','kneeA','footA'],['hip','kneeB','footB']];
+  // The body's limbs are drawn in turned dashes (see marks); a long prop
+  // in turned bars.
+  const LIMBS = [['hip','neck'],['shoulder','elbowA','handA'],['shoulder','elbowB','handB'],['hip','kneeA','footA'],['hip','kneeB','footB']].map(l => Object.assign(l, { turn:true, stroke:'-' }));
   // A fishing rod rides in hand A; its line runs from the tip to the bobber.
-  // Rods and sticks are long and straight, so their strokes are turned to
-  // lie along them (see marks).
   const ROD = { length:3.0, lift:.75, limbs:[Object.assign(['handA','rodTip'], { tone:'rod', turn:true }), Object.assign(['rodTip','bob'], { tone:'line' })] };
   // A roasting stick also rides in hand A. `up` is its angle above level
   // when lifted clear of the fire.
@@ -492,19 +494,24 @@
         continue;
       }
       if (limb.turn) {
-        // A long straight prop between stroke angles reads as a broken
-        // staircase of strokes. Instead, turn | to lie exactly along it and
-        // set them end to end, so it stays one even line at any angle. (A
-        // turned / or \ zigzags: its measured angle is its ink box's
-        // diagonal, a little off its true slant.)
-        const a = screen[limb[0]], b = screen[limb[1]], wa = j[limb[0]], wb = j[limb[1]], m = metrics['|'];
-        const r = Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2, cos = Math.cos(r), sin = Math.sin(r);
-        const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / m.len));
-        for (let k = 0; k < n; k++) {
-          const t = (k + .5) / n;
-          out.push({ c: '|', t: tone, r, x: mix(a.x, b.x, t) - (m.ox * cos - m.oy * sin), y: mix(a.y, b.y, t) - (m.ox * sin + m.oy * cos), d: mix(a.d, b.d, t), wx: mix(wa[0], wb[0], t), wy: mix(wa[1], wb[1], t), wz: mix(wa[2], wb[2], t) });
+        // A line drawn in strokes picked from the four ASCII angles reads
+        // as a broken staircase. Instead, turn one glyph to lie exactly
+        // along each bone and set copies end to end, enough to cover it
+        // (each overlaps its neighbour a little), so the bone is one even
+        // line at any angle that reaches both its joints. Props use the
+        // long | bar, the body's short bones the - dash, whose ink is about
+        // a bone long. (A turned / or \ zigzags: its measured angle is its
+        // ink box's diagonal, a little off its true slant.)
+        const ch = limb.stroke || '|', m = metrics[ch], base = ch === '|' ? Math.PI / 2 : 0;
+        for (let i = 0; i < limb.length - 1; i++, id++) {
+          const a = screen[limb[i]], b = screen[limb[i + 1]], wa = j[limb[i]], wb = j[limb[i + 1]];
+          const r = Math.atan2(b.y - a.y, b.x - a.x) - base, cos = Math.cos(r), sin = Math.sin(r);
+          const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / m.len));
+          for (let k = 0; k < n; k++) {
+            const t = (k + .5) / n;
+            out.push({ c: ch, t: tone, r, x: mix(a.x, b.x, t) - (m.ox * cos - m.oy * sin), y: mix(a.y, b.y, t) - (m.ox * sin + m.oy * cos), d: mix(a.d, b.d, t), wx: mix(wa[0], wb[0], t), wy: mix(wa[1], wb[1], t), wz: mix(wa[2], wb[2], t) });
+          }
         }
-        id++;
         continue;
       }
       const runs = [];
