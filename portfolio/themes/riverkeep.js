@@ -13,6 +13,7 @@
   const FONT = '"SFMono-Regular", Consolas, "Liberation Mono", monospace';
   const BG = '#080f18';
   const BG_RGB = [1, 3, 5].map(i => parseInt(BG.slice(i, i + 2), 16) / 255);
+  const BG_255 = BG_RGB.map(v => v * 255);
   const ACTOR = {font:7.5,cw:4.75,ch:7.5};
   const CAMPER = {font:9.5,cw:5.9,ch:10};
   const FISH = {font:9.5,cw:5.8,ch:9.5};
@@ -67,6 +68,62 @@
     end:{rows:['_____','\\___/'],tones:['wwwww','hhhhh']},
   };
   const BOAT_TONES = {h:['bark',.7],w:['wood',.9],p:['bark',.55],l:['fire',1]};
+  // Jake's name hangs in the scene's sky as a constellation (Oct 28 2026;
+  // he wanted it "in the stars" after lettering sliding through the
+  // crane's star gap could not be read on the move). A star sits at each
+  // corner of each letter, faint enough at rest to pass for any other; now
+  // and then the stargazer points it out, lines trace from star to star
+  // for `trace` seconds until it reads, hold still for `hold` and fade
+  // over `fade`. The first tracing comes `first` seconds after the scene
+  // arrives (Jake: as soon as the screen settles), later ones `every`
+  // apart, and a tap on its stars traces it too. It lays itself out in the
+  // clearest open sky at the largest x-height in `size` (pixels) that
+  // fits, every point `margin` pixels clear of the land, the moon and the
+  // chevron; on one line, or on two when that is a good deal larger. With
+  // no room for the smallest it is left out. `high` is how strongly it
+  // prefers to sit high in the sky, well off the land (Jake: off the
+  // castle, yet clear of the iPhone's status bar). From an x-height of
+  // `bright` up, the stars at the ends of strokes are the bright ones.
+  const NAME = {first:[.5,.5],every:[150,240],trace:4.5,hold:7,fade:2.4,size:[15,30],margin:7,high:.3,bright:20};
+  // The letters as strokes, in the order a pen writes them: point lists in
+  // x-heights from the letter's left at the baseline, y down, so the stems
+  // of d and k reach -1.65 and the capitals stand 1.6 tall. A stroke of
+  // one point is a lone star, a dot; `w` is the letter's width. Title
+  // case, Jake D'Amico (Jake, Oct 28 2026).
+  const NAME_FONT = {
+    J:{w:.7,s:[[.7,-1.6,.7,-.45,.42,0,.02,-.28]]},
+    D:{w:1.05,s:[[0,0,0,-1.6,.6,-1.6,1.05,-.8,.6,0,0,0]]},
+    A:{w:1.15,s:[[0,0,.22,-.62,.575,-1.6,.93,-.62,1.15,0],[.22,-.62,.93,-.62]]},
+    a:{w:.8,s:[[.8,-1,.35,-1,0,-.5,.35,0,.8,0],[.8,-1,.8,0]]},
+    k:{w:.75,s:[[0,-1.65,0,0],[.72,-1,0,-.45,.75,0]]},
+    e:{w:.85,s:[[0,-.5,.85,-.5,.6,-1,.25,-1,0,-.5,.3,0,.8,0]]},
+    "'":{w:.12,s:[[.12,-1.68,0,-1.25]]},
+    m:{w:1.1,s:[[0,0,0,-.8,.28,-1,.55,-.8,.55,0],[.55,-.8,.83,-1,1.1,-.8,1.1,0]]},
+    i:{w:.2,s:[[.1,-1,.1,0],[.1,-1.42]]},
+    c:{w:.78,s:[[.78,-.88,.35,-1,0,-.5,.35,0,.78,-.12]]},
+    o:{w:.88,s:[[.6,-1,.3,-1,0,-.5,.3,0,.6,0,.88,-.5,.6,-1]]},
+    ' ':{w:.3,s:[]},
+  };
+  const NAME_LINES = [["Jake D'Amico"],['Jake',"D'Amico"]];
+  // The name's strokes set on `lines`, each centred under the widest, in
+  // x-heights, with their bounds.
+  function nameStrokes(lines) {
+    const gap=.36,pitch=2.3,width=line=>[...line].reduce((sum,c)=>sum+NAME_FONT[c].w,0)+gap*(line.length-1);
+    const widest=Math.max(...lines.map(width)),strokes=[];
+    lines.forEach((line,row)=>{
+      let x=(widest-width(line))/2;
+      for(const c of line) {
+        for(const s of NAME_FONT[c].s) {
+          const points=[];
+          for(let i=0;i<s.length;i+=2) points.push([x+s[i],row*pitch+s[i+1]]);
+          strokes.push(points);
+        }
+        x+=NAME_FONT[c].w+gap;
+      }
+    });
+    const ys=strokes.flat().map(p=>p[1]);
+    return {strokes,w:widest,top:Math.min(...ys),bottom:Math.max(...ys)};
+  }
   const CAMERA = {yaw:.52,pitch:.58};
   // The opening: the page lands on a glowing orrery high above the scene
   // and waits `hold` seconds, or until a tap, then the camera cranes
@@ -295,6 +352,8 @@
       this.nextLanterns = LANTERNS.first[0]+Math.random()*(LANTERNS.first[1]-LANTERNS.first[0]);
       this.boat = null;
       this.nextBoat = BOAT.first[0]+Math.random()*(BOAT.first[1]-BOAT.first[0]);
+      this.nameAt = -1e9;
+      this.nextName = NAME.first[0]+Math.random()*(NAME.first[1]-NAME.first[0]);
       this.fish = [];
       this.drops = [];
       this.nextLeap = 5;
@@ -500,7 +559,7 @@
       const foot=side=>{const x=bx+side*(span+run);return [x,height(x,bz)+.12];};
       // Handrails are drawn as strokes (drawBridgeRails); thin geometry
       // falls between the character cells at this distance.
-      this.bridge={x:bx,z:bz,deck,half,start,end,piers:[bx-3.1,bx+3.1],rail:[foot(-1),[start,deck+.25],[end,deck+.25],foot(1)]};
+      this.bridge={x:bx,z:bz,deck,half,start,end,piers:[bx-3.1,bx+3.1],rail:[foot(-1),[start,deck+.25],[end,deck+.25],foot(1)],lamps:[]};
       for(const x of this.bridge.piers) {
         this.box(x,-.65,bz,1.6,deck-.15,half*2-.2,MAT.stone,{part:'bridgePier'});
         this.box(x,-.30,bz,2.1,.45,half*2+.3,MAT.rock);
@@ -523,7 +582,8 @@
         this.box(x,deck+.25,bz+half,.16,1.35,.16,MAT.wood);
         this.box(x,deck+1.60,bz+half,.44,.48,.40,MAT.warm);
         this.box(x,deck+2.08,bz+half,.54,.10,.50,MAT.roof);
-        this.lights.push({x,y:deck+1.8,z:bz+half,r:10.5,power:.70,phase:x});
+        const lamp={x,y:deck+1.8,z:bz+half,r:10.5,power:.70,phase:x};
+        this.lights.push(lamp);this.bridge.lamps.push(lamp);
       }
       for(let i=bridgeStart;i<this.polygons.length;i++)this.polygons[i].surface={...this.polygons[i].surface,bridge:true};
 
@@ -1293,6 +1353,8 @@
       // streak still reads at a glance.
       if(this.meteorAtlas) this.meteorAtlas.canvas.width=this.meteorAtlas.canvas.height=0;
       this.meteorAtlas=this.buildAtlas(9,5.5,9,['star','cream','ember'],700,' .+*@-/\\|');
+      // The name's lines are its dashes, set by their ink.
+      this.nameInk=Folk.measure(`700 9px ${FONT}`)['-'];
       // The Milky Way's unresolved light is drawn as faint characters, never
       // painted: dots thicken toward the core and the dust lanes are gaps.
       // A sparse ring of dots haloes the moon. All of it is static, so it is
@@ -1339,6 +1401,123 @@
         const rate=.6+hash(gx,gy,108)*2.2;
         this.stars.push({x,y,b,g:GI[g],p:PAL[p],phase:hash(gx,gy,107)*TAU,rate,rate26:rate*2.6,scint:hash(gx,gy,109)>.94,s16:band.s*.016,glow45:band.light*.45,band:inBand});
       }
+      this.layoutName();
+    }
+    // Sets the name's constellation in the clearest open sky that holds it
+    // (see NAME): its stars, the lines between them in the order the pen
+    // traces them, and when the pen reaches each.
+    layoutName() {
+      this.nameStars=null;
+      const cw=this.cw,ch=this.ch,cols=this.cols,rows=Math.min(this.rows,this.skyRows+1),moon=this.moon,nav=this.reduced?null:this.navAt('up');
+      if(!this.skyRows) return;
+      // Each cell's distance to the nearest thing the name keeps clear of:
+      // the land, the moon, the chevron's glyph (the word gap may pass
+      // under it), the sides of the screen and the top of the visible page,
+      // which on an iPhone is the foot of the status bar. And how much
+      // Milky Way lies behind it.
+      const dist=new Float32Array(cols*rows),haze=new Float32Array(cols*rows),top=this.topInset+14,diag=Math.hypot(cw,ch);
+      for(let j=0;j<rows;j++) for(let i=0;i<cols;i++) {
+        const k=j*cols+i,x=(i+.5)*cw,y=(j+.5)*ch;
+        const blocked=this.material[k]!==MAT.sky||y<top||x<6||x>this.W-6||Math.hypot(x-moon.x,y-moon.y)<moon.r+10||nav&&Math.abs(x-nav.x)<NAV.cw&&Math.abs(y-nav.y)<NAV.cw;
+        dist[k]=blocked?0:1e9;
+        if(!blocked) haze[k]=this.milkyWay(x+this.view.x,y+this.view.y).light;
+      }
+      for(let j=0;j<rows;j++) for(let i=0;i<cols;i++) {
+        const k=j*cols+i;
+        if(!dist[k]) continue;
+        let d=dist[k];
+        if(i>0) d=Math.min(d,dist[k-1]+cw);
+        if(j>0) {d=Math.min(d,dist[k-cols]+ch);if(i>0) d=Math.min(d,dist[k-cols-1]+diag);if(i<cols-1) d=Math.min(d,dist[k-cols+1]+diag);}
+        dist[k]=d;
+      }
+      for(let j=rows-1;j>=0;j--) for(let i=cols-1;i>=0;i--) {
+        const k=j*cols+i;
+        if(!dist[k]) continue;
+        let d=dist[k];
+        if(i<cols-1) d=Math.min(d,dist[k+1]+cw);
+        if(j<rows-1) {d=Math.min(d,dist[k+cols]+ch);if(i<cols-1) d=Math.min(d,dist[k+cols+1]+diag);if(i>0) d=Math.min(d,dist[k+cols-1]+diag);}
+        dist[k]=d;
+      }
+      const cell=(x,y)=>{const i=Math.floor(x/cw),j=Math.floor(y/ch);return i<0||j<0||i>=cols||j>=rows?-1:j*cols+i;};
+      // Largest first. Two lines only win if they are a good deal larger
+      // than one; among the places that fit, the one with the least Milky
+      // Way behind its stars and the most open sky around them wins (by
+      // haze alone it tucked itself into a corner against the moon).
+      let best=null;
+      for(const lines of NAME_LINES) {
+        const shape=nameStrokes(lines),corners=shape.strokes.flat();
+        for(let size=NAME.size[1];size>=NAME.size[0];size--) {
+          if(best&&size<=best.size*1.25) break;
+          const points=[];
+          for(const s of shape.strokes) {
+            points.push([s[0][0]*size,s[0][1]*size]);
+            for(let i=1;i<s.length;i++) {
+              const [ax,ay]=s[i-1],[bx,by]=s[i],n=Math.ceil(Math.hypot(bx-ax,by-ay)*size/3);
+              for(let q=1;q<=n;q++) points.push([(ax+(bx-ax)*q/n)*size,(ay+(by-ay)*q/n)*size]);
+            }
+          }
+          let found=null;
+          for(let oy=-shape.top*size;oy+shape.bottom*size<rows*ch;oy+=ch/2) for(let ox=0;ox+shape.w*size<this.W;ox+=cw) {
+            let fits=true;
+            for(const [x,y] of points) {const k=cell(ox+x,oy+y);if(k<0||dist[k]<NAME.margin) {fits=false;break;}}
+            if(!fits) continue;
+            let behind=0;
+            for(const [x,y] of corners) {const k=cell(ox+x*size,oy+y*size);behind+=haze[k]+Math.max(0,1-(dist[k]-NAME.margin)/24);}
+            behind+=corners.length*NAME.high*(oy-top)/(rows*ch-top);
+            if(!found||behind<found.behind) found={size,shape,ox,oy,behind,rows:lines.length};
+          }
+          if(found) {best=found;break;}
+        }
+      }
+      if(!best) return;
+      // The pen runs at one speed along every line, lifting between
+      // strokes, timed in x-heights so every screen traces it alike.
+      const {size,shape,ox,oy}=best,lift=.45,ink=this.nameInk,gap=3.2,stars=new Map(),edges=[];
+      const at=p=>[ox+p[0]*size,oy+p[1]*size];
+      const star=(p,t)=>{
+        const key=p[0].toFixed(3)+','+p[1].toFixed(3);
+        if(!stars.has(key)) {
+          const [x,y]=at(p),n=stars.size,pick=hash(n,7,431);
+          stars.set(key,{x,y,t,lines:0,g:GI[pick>.7?'+':'.'],b:.3+hash(n,7,432)*.22,phase:hash(n,7,433)*TAU,rate:.6+hash(n,7,434)*2});
+        }
+        return stars.get(key);
+      };
+      let clock=0;
+      for(const s of shape.strokes) {
+        star(s[0],clock);
+        for(let i=1;i<s.length;i++) {
+          star(s[i-1]).lines++;
+          const [ax,ay]=at(s[i-1]),[bx,by]=at(s[i]),len=Math.hypot(bx-ax,by-ay),turn=Math.atan2(by-ay,bx-ax),cos=Math.cos(turn),sin=Math.sin(turn);
+          const span=Math.hypot(s[i][0]-s[i-1][0],s[i][1]-s[i-1][1]);
+          // Each line stops short of its stars, drawn as dashes turned
+          // along it and set end to end by their ink, as the folk's limbs.
+          const run=len-gap*2,n=run>1?Math.max(1,Math.ceil(run/ink.len)):0,dashes=[];
+          for(let q=0;q<n;q++) {
+            const f=(q+.5)/n,x=ax+cos*(gap+run*f),y=ay+sin*(gap+run*f);
+            dashes.push({f,x,y,gx:x-(ink.ox*cos-ink.oy*sin),gy:y-(ink.ox*sin+ink.oy*cos)});
+          }
+          edges.push({ax:ax+cos*gap,ay:ay+sin*gap,dx:cos*run,dy:sin*run,turn,dashes,t0:clock,t1:clock+span});
+          clock+=span;
+          star(s[i],clock).lines++;
+        }
+        clock+=lift;
+      }
+      const pace=NAME.trace/(clock-lift);
+      for(const e of edges) {e.t0*=pace;e.t1*=pace;}
+      // Lit, the stars at the ends of strokes and the dots are the bright
+      // ones, those at the bends lesser, as in a real constellation; on a
+      // small name all are lesser, or they crowd out its lines.
+      for(const s of stars.values()) {s.t*=pace;s.lit=s.lines<2&&size>=NAME.bright?'*':'+';}
+      const list=[...stars.values()],xs=list.map(s=>s.x),ys=list.map(s=>s.y);
+      const box={x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+      this.nameStars={stars:list,edges,box,size,rows:best.rows};
+      // Ordinary stars that fall on a line or crowd a star of the name go,
+      // so the letters come out clean.
+      const near=(x,y)=>list.some(s=>Math.hypot(x-s.x,y-s.y)<6)||edges.some(e=>{
+        const run=e.dx*e.dx+e.dy*e.dy,f=run?clamp(((x-e.ax)*e.dx+(y-e.ay)*e.dy)/run):0;
+        return Math.hypot(x-e.ax-e.dx*f,y-e.ay-e.dy*f)<4;
+      });
+      this.stars=this.stars.filter(s=>s.x<box.x0-8||s.x>box.x1+8||s.y<box.y0-8||s.y>box.y1+8||!near(s.x,s.y));
     }
 
     // The opening sequence. The sky carries on above the scene as one
@@ -1381,7 +1560,7 @@
       // arrival. The boat does not: its clock already runs while the keep
       // comes into view, and it should set out as the camera arrives.
       const away=this.time-intro.timeAtStart;
-      this.nextShower+=away;this.nextLanterns+=away;
+      this.nextShower+=away;this.nextLanterns+=away;this.nextName+=away;
     }
     // Builds the orrery and the sky above the scene unless they are built.
     // Opened without the opening, the page builds them a moment later so
@@ -1873,13 +2052,15 @@
         }
     }
 
-    visible(p,coverTerrain=false) {
+    visible(p,coverTerrain=false,overSign=false) {
       const i = Math.floor(p.x / this.cw), j = Math.floor(p.y / this.ch);
       if(i<0||i>=this.cols||j<0||j>=this.rows)return false;
       const k=j*this.cols+i,m=this.material[k];
       // Grass belongs behind animal silhouettes. Solid world objects still
       // use their real depth, so trunks and masonry can hide an animal.
-      return coverTerrain&&(m===MAT.grass||m===MAT.earth||m===MAT.path)||p.d>=this.depth[k]-.7;
+      // `overSign` sees through the signpost's boards (the boat's, see
+      // drawSceneLife).
+      return coverTerrain&&(m===MAT.grass||m===MAT.earth||m===MAT.path)||overSign&&this.signCell[k]>=0||p.d>=this.depth[k]-.7;
     }
     worldGlyph(char, palette, b, x,y,z, alpha=1, offsetX=0, offsetY=0) {
       const p = this.project(x,y,z);
@@ -1972,7 +2153,8 @@
     // `boat`, for a rower, hides what its hull covers: body marks below the
     // gunwale's height, oar marks there on the far side of the boat, and
     // any below the hull's bottom line on the screen (`line`), which are
-    // under the water.
+    // under the water. Nothing of a rower hides behind the signpost (see
+    // drawSceneLife).
     drawFigure(fig,boat=null) {
       // The dark keyline goes down before the strokes, so grass never runs
       // into a limb and limbs never cut limbs.
@@ -1980,9 +2162,9 @@
       let marks=this.figureMarks(fig,project);
       const reach=Math.hypot(fig.x-f.x,fig.z-f.z);
       if(boat) marks=marks.filter(m=>m.y<=boat.line+1.5&&(m.wy>=boat.gunwale||m.t==='oar'&&m.d>boat.d));
-      for(const m of marks) if(m.t!=='line'&&this.visible(m,true)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet,m.r);
+      for(const m of marks) if(m.t!=='line'&&this.visible(m,true,!!boat)) for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]) this.sheetGlyph(sheet.index[m.c],'dark',.3,m.x+ox,m.y+oy,false,1,sheet,m.r);
       for(const m of marks) {
-        if(!this.visible(m,true))continue;
+        if(!this.visible(m,true,!!boat))continue;
         // Whatever reaches out past the body toward the fire catches its light.
         const heat=clamp((reach-Math.hypot(m.wx-f.x,m.wz-f.z)+.1)/.7)*clamp(1.6-reach/5)*this.flicker;
         if(m.t==='body')this.sheetGlyph(sheet.index[m.c],fig.palette,fig.brightness+heat*.16,m.x,m.y,heat>.36,1,sheet,m.r);
@@ -2003,9 +2185,11 @@
       if(fig.toast) this.drawMishap(fig.toast,marks);
     }
     drawFire(t) {
-      // A dark keyline goes down first, so the flames stand off the
-      // firelit ground around them.
+      // A glow like the boat lantern's, wider, under the flames and
+      // whoever sits by them (Jake, Oct 28 2026). A dark keyline goes down
+      // next, so the flames stand off the firelit ground around them.
       const f=this.fire,p=this.project(f.x,f.y,f.z),flames=[];
+      this.halo(p.x,p.y-this.ch*.5,34,COLORS.fire,.3*this.flicker,.1*this.flicker,.4);
       this.sprite([' . . ','(x=x)'],f.x,f.y+.05,f.z,'rock',.6);
       for(let j=0;j<4;j++) for(let i=-1;i<=1;i++) {
         const flick=Math.sin(t*11+j*3+i*2),h=3+flick*.6-Math.abs(i);
@@ -2052,6 +2236,9 @@
       if (t >= this.nextMeteor) { this.nextMeteor = t+6+Math.random()*6; this.spawnMeteor(); }
       if (!this.shower && t >= this.nextShower) this.startShower();
       if (this.shower) this.stepShower(dt);
+      // Not on the way down: the scene's clock already runs as the keep
+      // comes into view, and the name waits for the camera to settle.
+      if (!this.shower && !this.intro && t >= this.nextName) this.traceName();
       if (LANTERNS.on && !this.lanternRelease && t >= this.nextLanterns) this.releaseLanterns();
       if (this.lanternRelease || this.lanterns.length) this.stepLanterns(dt);
       if (!this.boat && t >= this.nextBoat) this.launchBoat();
@@ -2318,6 +2505,16 @@
         return;
       }
     }
+    // The stargazer points the name out and its lines trace in (see NAME).
+    traceName() {
+      this.nextName=this.time+NAME.trace+NAME.hold+NAME.fade+NAME.every[0]+Math.random()*(NAME.every[1]-NAME.every[0]);
+      const n=this.nameStars;
+      if(!n) return;
+      this.nameAt=this.time;
+      const fig=this.stargazer,seen=this.project(fig.x,fig.y,fig.z);
+      Folk.cue(fig,(n.box.x0+n.box.x1)/2>seen.x?'point':'pointBack',NAME.trace,.35);
+    }
+    nameShowing() { return this.time-this.nameAt<NAME.trace+NAME.hold+NAME.fade; }
     startShower() {
       if(this.shower) return;
       // A shower's meteors all fly out from one point in the sky, its
@@ -2562,7 +2759,7 @@
         if(face<0) c=c==='/'?'\\':c==='\\'?'/':c;
         const col=face<0?rows[j].length-1-i:i;
         cell.x=p.x+(col-(rows[j].length-1)/2)*cw;cell.y=p.y-(n-1-j)*ch;
-        if(!this.visible(cell)) continue;
+        if(!this.visible(cell,false,true)) continue;
         if(tone==='l') lamp={x:cell.x,y:cell.y};
         cells.push({c,tone,x:cell.x,y:cell.y});
       }
@@ -2660,6 +2857,7 @@
       }
       // The new sky bakes the moon into its glowing layer.
       if(plain) this.drawMoon();
+      this.drawName();
       for(const m of this.meteors) {
         const life=m.age/m.life,travel=m.speed*m.age,fade=smooth(0,.1,life)*(1-smooth(.62,1,life));
         const x=m.x+m.dx*travel,y=m.y+m.dy*travel,spacing=4.5;
@@ -2685,11 +2883,47 @@
         this.skyGlyph(flare>.5?'*':flare>.2?'+':'.','star',.62+flare*.5,mix(sat.x0,sat.x1,p),mix(sat.y0,sat.y1,p),fade);
       }
     }
+    // The name's stars twinkle like any others until the pen reaches them;
+    // lit, each is a bright star in a small glow. Behind the lines and lit
+    // stars the sky darkens a little, so the letters read over the Milky
+    // Way, and the darkening goes with them.
+    drawName() {
+      const n=this.nameStars;
+      if(!n) return;
+      const t=this.time,age=t-this.nameAt,end=NAME.trace+NAME.hold,cull=this.cull,sheet=this.meteorAtlas,G=sheet.index;
+      const show=age>=0&&age<end+NAME.fade?1-smooth(end,end+NAME.fade,age):0,out=cull?y=>y<cull.top||y>cull.bottom:()=>false;
+      if(show>0) {
+        for(const e of n.edges) {
+          const p=(age-e.t0)/(e.t1-e.t0);
+          if(p>0) for(const d of e.dashes) {if(d.f>p) break;if(!out(d.y)) this.halo(d.x,d.y,5,BG_255,.78*show,.78*show,.5);}
+        }
+        for(const s of n.stars) if(age>s.t&&!out(s.y)) this.halo(s.x,s.y,6,BG_255,.85*show,.85*show,.55);
+        for(const e of n.edges) {
+          const p=(age-e.t0)/(e.t1-e.t0);
+          if(p<=0) continue;
+          for(const d of e.dashes) {if(d.f>p) break;if(!out(d.y)) this.sheetGlyph(G['-'],'star',.62,d.gx,d.gy,false,show,sheet,e.turn);}
+          // The pen's point, bright as it travels.
+          if(p<1) {const x=e.ax+e.dx*p,y=e.ay+e.dy*p;if(!out(y)) this.sheetGlyph(G['+'],'cream',1.1,x,y,false,show,sheet);}
+        }
+      }
+      for(const s of n.stars) {
+        if(out(s.y)) continue;
+        const twinkle=.8+Math.sin(t*s.rate+s.phase)*.2,lit=show*smooth(s.t,s.t+.3,age);
+        if(lit<1) this.glyph(s.g,'star',s.b*twinkle,s.x,s.y,false,1-lit);
+        if(lit>0) {
+          const bright=s.lit==='*';
+          this.halo(s.x,s.y,bright?8:6,[214,228,232],(bright?.18:.12)*lit,.05*lit,.35);
+          this.sheetGlyph(G[s.lit],'star',(bright?.95:.85)+twinkle*.15,s.x,s.y,false,lit,sheet);
+        }
+      }
+    }
+    // How bright a light burns at time t, by its own phase.
+    lightFlicker(l,t) {return .83+Math.sin(t*8+l.phase)*.10+Math.sin(t*13+l.phase)*.06;}
     drawWorld(staticPass=false) {
       const t=this.time,cw=this.cw,ch=this.ch;
       const lighting=this.moonlight;
       const trample=staticPass?null:this.trample;
-      const lightFlickers=this.lights.map(l=>.83+Math.sin(t*8+l.phase)*.10+Math.sin(t*13+l.phase)*.06);
+      const lightFlickers=this.lights.map(l=>this.lightFlicker(l,t));
       const cells=staticPass?this.stillCells:this.liveCells,cols=this.cols,cull=this.cull,part=this.waterPart;
       for(let c=0;c<cells.length;c++) {
         const k=cells[c],m=this.material[k],i=k%cols,j=(k-i)/cols;
@@ -2852,6 +3086,12 @@
     }
     drawMeadow() {
       const t=this.time;
+      // The bridge's lanterns glow like the boat's, breathing with the
+      // light they cast, under whoever crosses (Jake, Oct 28 2026).
+      for(const lamp of this.bridge.lamps) {
+        const p=this.project(lamp.x,lamp.y,lamp.z),k=this.lightFlicker(lamp,t);
+        this.halo(p.x,p.y,16,COLORS.fire,.24*k,.08*k,.4);
+      }
       for(let l=0;l<this.lights.length-1;l++) {
         const light=this.lights[l];
         if(l>1) continue; // Bridge lanterns are lit geometry; gate torches flicker.
@@ -2904,7 +3144,6 @@
         {x:rabbitX,y:height(rabbitX,rabbit.z)+.12,z:rabbit.z,draw:a=>this.sprite(SPRITES.rabbit,a.x,a.y,a.z,'cream',.68,rabbitBob,{actor:true,eyePalette:'deer',opaque:true})},
         ...this.folk.filter(fig=>!fig.hidden).map(fig=>({x:fig.x,y:fig.y,z:fig.z,draw:()=>this.drawFigure(fig)})),
         ...this.fish.map(f=>{const [x,y,z]=this.leapPoint(f,Math.min(1,f.age/f.life));return {x,y,z,draw:()=>this.drawFish(f)};}),
-        ...(this.boat?[{x:this.boat.x,y:.1,z:this.boat.z,draw:()=>this.drawBoat(this.boat)}]:[]),
       ];
       for(const a of actors)a.d=this.project(a.x,a.y,a.z).d;
       actors.sort((a,b)=>a.d-b.d);
@@ -3009,7 +3248,7 @@
     }
     // The scene in two halves, so a crane can draw them on separate frames:
     // the ground (sky, the still world, the moving cells) and the life on
-    // it (meadow, animals, folk, the signpost).
+    // it (meadow, animals, folk, the signpost, the boat).
     drawScene() {this.drawSceneBase();this.drawSceneLife();}
     drawSceneBase() {
       if(this.sky!=='plain'&&this.skyRows) this.image(this.hazeCanvas,0,0,this.hazeCanvas.width/this.dpr,this.hazeCanvas.height/this.dpr);
@@ -3018,6 +3257,11 @@
     drawSceneLife() {
       this.drawMeadow();
       if(this.linkStyle==='sign') this.drawSign(); else this.drawFlyWords();
+      // The boat goes over the signpost, boards and lettering alike, where
+      // it passes their corner; the rower ducked behind them (Jake, Oct 28
+      // 2026). The links are page elements over the canvas, so they still
+      // take the taps there.
+      if(this.boat) this.drawBoat(this.boat);
     }
     // Whoever a tap at px, py lands on, if anyone: the nearest figure or
     // animal under the finger. Each gets an oval around its body (w, h, its
@@ -3064,6 +3308,9 @@
       // under the finger; on the land, a ring outward through the grass.
       const actor=this.actorAt(px,py);
       if(actor) { this.react(actor); return; }
+      // A tap on the name's stars traces it.
+      const box=this.nameStars&&this.nameStars.box;
+      if(box&&!this.nameShowing()&&px>box.x0-10&&px<box.x1+10&&py>box.y0-10&&py<box.y1+10) { this.traceName(); return; }
       if(this.isSky(px,py)) { if(this.meteors.length<8) this.spawnMeteor({x:px,y:py}); return; }
       const p=this.groundAt(px,py);
       this.ripples.push({x:p.x,z:p.z,age:0});
@@ -3094,9 +3341,10 @@
     document.head.appendChild(style);
     if(new URLSearchParams(location.search).get('studio')!=='1') return;
     const tools=document.createElement('aside');tools.className='river-tools';tools.setAttribute('aria-label','Landscape preview');
-    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),shower=document.createElement('button'),lanterns=document.createElement('button'),boat=document.createElement('button'),replay=document.createElement('button');
-    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';shower.textContent='Meteor shower';lanterns.textContent='Lanterns';boat.textContent='Boat';replay.textContent='Replay intro';
+    const sky=document.createElement('button'),detail=document.createElement('button'),pause=document.createElement('button'),shower=document.createElement('button'),lanterns=document.createElement('button'),boat=document.createElement('button'),name=document.createElement('button'),replay=document.createElement('button');
+    sky.textContent='Sky: New';detail.textContent='Detail: Fine';pause.textContent='Pause';shower.textContent='Meteor shower';lanterns.textContent='Lanterns';boat.textContent='Boat';name.textContent='Name';replay.textContent='Replay intro';
     shower.addEventListener('click',()=>scene.startShower());
+    name.addEventListener('click',()=>scene.traceName());
     lanterns.addEventListener('click',()=>scene.releaseLanterns());
     boat.addEventListener('click',()=>scene.launchBoat());
     replay.addEventListener('click',()=>{scene.startIntro();scene.render();});
@@ -3116,7 +3364,7 @@
     pause.setAttribute('aria-pressed','false');
     if(scene.reduced) { pause.disabled=true;pause.textContent='Still'; }
     pause.addEventListener('click',()=>{ scene.paused=!scene.paused;pause.textContent=scene.paused?'Resume':'Pause';pause.setAttribute('aria-pressed',String(scene.paused)); });
-    tools.append(replay,shower,lanterns,boat,sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
+    tools.append(replay,shower,lanterns,boat,name,sky,detail,pause);document.body.appendChild(tools);scene.tools=tools;
   }
 
   window.__themes=window.__themes||{};
