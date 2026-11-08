@@ -169,6 +169,13 @@
     ],
     belt:{inner:.585,outer:.65,count:140,period:19},
     comet:{a:1.5,e:.8,period:30,tilt:.4,node:.3,peri:5},
+    // How bright the whole system reads (Nov 8 2026, Jake: "brighter").
+    // `gain` lifts every glyph, `night` is a planet's dark side and `day`
+    // the least its lit side gets, `halo` scales each planet's own glow
+    // and `sun` the sun's blooms and the faint light across the plane
+    // (1.6 was "too much orange glare", so the sun keeps its own light);
+    // `glow` is the blur baked round each glyph on the orrery's sheet.
+    light:{gain:1.6,night:.3,day:.36,halo:1.8,sun:1,glow:3},
   };
   // Each planet's face: for a point on its globe (`lat` is the normal's
   // upward part, so ±1 at the poles; `lon` turns with the planet) a
@@ -1658,22 +1665,24 @@
     }
     makeOrrery() {
       // The orrery sits in the middle of the visible page (below the parked
-      // runway on iOS). A wide screen fits Neptune's orbit; a phone is
-      // sized by its height instead, so the system fills the screen and the
-      // outer planets swing off the sides and back, rather than a small
-      // chart in a strip across the middle. Everything in it goes through
+      // runway on iOS). A phone is sized by its height, so the system fills
+      // the screen and the outer planets swing off the sides and back,
+      // rather than a small chart in a strip across the middle. A wide
+      // screen is sized by its height too, with no cap, so Neptune's orbit
+      // nearly fills it top to bottom (Nov 8 2026, Jake: "zoom this in on
+      // desktop"; it had been capped at 340 px). Everything in it goes through
       // one small depth-tested cell grid, so the sun hides the far side of
       // the orbits, planets pass behind and in front of it, and Saturn's
       // ring wraps its globe. The grid reaches past Neptune for the comet's
       // tail, and stops at the screen's edges.
       const ios=CSS.supports('-webkit-touch-callout','none'),top=ios?80:0,visible=this.H-top,portrait=this.W<visible;
-      const R=portrait?Math.min(visible*.4,340):Math.min(this.W*.44,visible*.4,340),pitch=INTRO.pitch;
+      const R=portrait?Math.min(visible*.4,340):Math.min(this.W*.5,visible*.6),pitch=INTRO.pitch;
       const P={cy:1,sy:0,cp:Math.cos(pitch),sp:Math.sin(pitch)};
       const cx=this.W/2,cy=top+visible*.44,hx=R*1.3,hy=R*(P.sp*1.3+.16);
       const x0=Math.max(cx-hx,-ORB.cw),y0=Math.max(cy-hy,-ORB.ch);
       const cols=Math.ceil((Math.min(cx+hx,this.W+ORB.cw)-x0)/ORB.cw),rows=Math.ceil((Math.min(cy+hy,this.H+ORB.ch)-y0)/ORB.ch),n=cols*rows;
       if(this.orbAtlas) this.orbAtlas.canvas.width=this.orbAtlas.canvas.height=0;
-      this.orbAtlas=this.buildAtlas(ORB.font,ORB.cw+ORB.pad,ORB.ch+ORB.pad,ORB_PALETTES,700,ORB_GLYPHS,ORB.glow);
+      this.orbAtlas=this.buildAtlas(ORB.font,ORB.cw+ORB.pad,ORB.ch+ORB.pad,ORB_PALETTES,700,ORB_GLYPHS,ORRERY.light.glow);
       // Asteroids keep Kepler's rule of thumb: the farther out, the slower.
       const belt=[],{inner,outer,count,period}=ORRERY.belt;
       for(let i=0;i<count;i++) {
@@ -1685,7 +1694,7 @@
     }
     orbGlyph(g,p,b,x,y,turn=0) {
       if(b<.025) return;
-      const sheet=this.orbAtlas,l=Math.round(clamp(b*1.18+.025)*(LEVELS-1));
+      const sheet=this.orbAtlas,l=Math.round(clamp(b*1.18*ORRERY.light.gain+.025)*(LEVELS-1));
       this.blit(sheet,g,p*LEVELS+l,x,y,sheet.cw,sheet.ch,turn,1);
     }
     drawSpace(t,low=-Infinity,high=Infinity) {
@@ -1805,7 +1814,8 @@
         }
       }
       // Faint sunlight across the whole plane ties the system together.
-      halo(sun.x,sun.y,R*1.15,[255,190,110],.08,.03,.5);
+      const lt=ORRERY.light;
+      halo(sun.x,sun.y,R*1.15,[255,190,110],.08*lt.sun,.03*lt.sun,.5);
       for(const a of o.belt) {const ang=a.angle+t*a.rate,s=projTo(a.a*Math.cos(ang),a.y,a.a*Math.sin(ang),S1);put(s.x,s.y,s.d,G[a.g],PI.stone,a.b);}
       // The sun: a breathing bloom, a granulated disc that cools from cream
       // to orange at the limb, short spikes all round and a few long
@@ -1813,8 +1823,8 @@
       // planet behind it is lost in the glare and one in front crosses it
       // as a dark disc.
       const breath=.92+.08*Math.sin(t*2.3)+.04*Math.sin(t*5.1);
-      halo(sun.x,sun.y,rsp*3.6,[255,165,60],.40*breath,.09,.38);
-      halo(sun.x,sun.y,rsp*1.6,[255,226,160],.55,.16,.5);
+      halo(sun.x,sun.y,rsp*3.6,[255,165,60],Math.min(1,.40*breath*lt.sun),.09*lt.sun,.38);
+      halo(sun.x,sun.y,rsp*1.6,[255,226,160],Math.min(1,.55*lt.sun),.16*lt.sun,.5);
       sphere(sun,rs,(dx,dy,nz,rr)=>{
         const grain=noise(dx*2.6+t*.35,dy*2.6+t*.2,711);
         // Smaller glyphs round the limb keep the disc from squaring off.
@@ -1843,13 +1853,13 @@
       for(const p of ORRERY.planets) {
         const pos=orbit(p,p.start+TAU*t/p.period),s=proj(pos[0],pos[1],pos[2]),len=Math.hypot(pos[0],pos[1],pos[2]);
         const L=[-pos[0]/len,-pos[1]/len,-pos[2]/len],Ls=toScreen(L),skin=SKINS[p.name],rp=p.r*R;
-        halo(s.x,s.y,rp+9,rgbOf(p.palette),.30,.04,.45);
+        halo(s.x,s.y,rp+9,rgbOf(p.palette),.30*lt.halo,.04*lt.halo,.45);
         sphere(s,p.r,(dx,dy,nz,rr)=>{
           const lam=dx*Ls[0]+dy*Ls[1]+nz*Ls[2],lit=Math.max(0,lam);
           const w=toWorld(dx,dy,nz),[pal,tone,night]=skin(w[1],Math.atan2(w[0],w[2])+t*p.spin,t);
-          if(lam<=0) return night?fill(G['.'],PI[night],.5):fill(G[lam>-.3?':':'.'],PI[pal],.14);
+          if(lam<=0) return night?fill(G['.'],PI[night],.5):fill(G[lam>-.3?':':'.'],PI[pal],lt.night);
           if(p.air&&rr>.8&&lit>.08) return fill(G[lit>.4?':':"'"],PI[p.air],.3+lit*.6);
-          const rim=rr>.55&&lam>.25?.18:0,b=(.17+.83*Math.pow(lit,.75))*tone+rim;
+          const rim=rr>.55&&lam>.25?.18:0,b=(lt.day+(1-lt.day)*Math.pow(lit,.75))*tone+rim;
           return fill(G[b>.72?'@':b>.48?'%':b>.28?'o':b>.12?':':'.'],PI[pal],b);
         });
         if(p.ring) {
